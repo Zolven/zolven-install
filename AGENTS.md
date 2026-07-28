@@ -1,16 +1,15 @@
-# Alfred Install Agents
+# Zolven Install Agents
 
 Start here before changing installer, cleanup, enrollment, or runtime bootstrap behavior.
 
 ## Canonical Docs
 
 - `README.md`
-- `alfreds-inc/alfred/docs/cloud_runtime_invariants.md`
-- `/Users/machine/.claude/plans/alfred-install-bootstrap-plan.md`
+- `Zolven/zolven` repository: `docs/cloud_runtime_invariants.md`
 
 ## Repo Role
 
-`alfred-install` owns:
+`zolven-install` owns:
 
 - machine bootstrap
 - repo checkout/update
@@ -29,7 +28,7 @@ It does not own:
 - `local` is the default install mode
 - `cloud` is explicit and infra-only
 - cloud mode is Linux-only in v1
-- local installs hand product setup off to `alfred setup` and focused CLI commands
+- local installs hand product setup off to `zolven setup` and focused CLI commands
 - cloud onboarding remains browser-led
 
 ## Keep Stable
