@@ -3,17 +3,18 @@ set -euo pipefail
 
 ORIGINAL_PATH="${PATH:-}"
 
-INSTALLER_VERSION="2026.04-cloud-scaffold"
-INSTALL_STATE_SCHEMA_VERSION="1"
+INSTALLER_VERSION="2026.07-zolven-rebrand"
+INSTALL_STATE_SCHEMA_VERSION="2"
+RUNTIME_CONTRACT_VERSION="1"
 
 GITHUB_TOKEN="${GITHUB_TOKEN:-}"
 if [ -d "$HOME/.local/bin" ]; then
   export PATH="$HOME/.local/bin:$PATH"
 fi
 
-REPO_SLUG="${ALFRED_REPO_SLUG:-alfreds-inc/alfred}"
-BRANCH="${ALFRED_REPO_BRANCH:-main}"
-MODE="${ALFRED_INSTALL_MODE:-local}"
+REPO_SLUG="Zolven/zolven"
+BRANCH="${ZOLVEN_REPO_BRANCH:-main}"
+MODE="${ZOLVEN_INSTALL_MODE:-local}"
 DEV_MODE=0
 INSTALL_LAUNCHD=0
 INSTALL_SYSTEMD=""
@@ -25,41 +26,41 @@ SKIP_ENTITY_WIZARD=0
 NON_INTERACTIVE=0
 SKIP_START=0
 PRINT_SUMMARY_ONLY=0
-TELEGRAM_TOKEN_FILE=""
 USER_SET_SKIP_OPENCLAW_WIZARD=0
 USER_SET_SKIP_ENTITY_WIZARD=0
 USER_SET_TELEGRAM_TOKEN_FILE=0
-ENROLLMENT_TOKEN="${ALFRED_CLOUD_ENROLLMENT_TOKEN:-}"
+ENROLLMENT_TOKEN="${ZOLVEN_CLOUD_ENROLLMENT_TOKEN:-}"
 FORCE_REENROLL=0
 
-RAW_REPO_DIR="${ALFRED_REPO_DIR:-}"
-RAW_DATA_DIR="${ALFRED_DATA_DIR:-}"
-RAW_WATCH_DIR="${ALFRED_WATCH_DIR:-}"
-RAW_CLI_LAUNCHER_PATH="${ALFRED_CLI_LAUNCHER:-}"
+RAW_REPO_DIR="${ZOLVEN_REPO_DIR:-}"
+RAW_DATA_DIR="${ZOLVEN_DATA_DIR:-}"
+RAW_WATCH_DIR="${ZOLVEN_WATCH_DIR:-}"
+RAW_CLI_LAUNCHER_PATH="${ZOLVEN_CLI_LAUNCHER:-}"
 REPO_DIR=""
 DATA_DIR=""
 WATCH_DIR=""
 CLI_LAUNCHER_PATH=""
 
-OPENCLAW_PARENT_DIR="${OPENCLAW_WORKSPACE_PARENT_DIR:-${OPENCLAW_WORKSPACE_DIR:-$HOME/.openclaw/workspace}}"
-OPENCLAW_WORKSPACE_DIR="$OPENCLAW_PARENT_DIR/alfred"
+RAW_OPENCLAW_PARENT_DIR="${OPENCLAW_WORKSPACE_PARENT_DIR:-${OPENCLAW_WORKSPACE_DIR:-}}"
+RAW_OPENCLAW_WORKSPACE_DIR="${ZOLVEN_OPENCLAW_WORKSPACE_DIR:-}"
+OPENCLAW_PARENT_DIR=""
+OPENCLAW_WORKSPACE_DIR=""
 
 INSTALL_STATE_FILE=""
 CLOUD_ENV_FILE=""
 TUNNEL_ENV_FILE=""
 INSTALL_STATUS="not_started"
 INSTALL_ID=""
-INSTALL_STARTED_AT_UTC="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
 
-CLOUD_SERVICE_USER="${ALFRED_CLOUD_SERVICE_USER:-alfred}"
-CLOUD_API_BASE_URL="${ALFRED_CLOUD_API_BASE_URL:-}"
-CLOUD_ENROLLMENT_URL="${ALFRED_CLOUD_ENROLLMENT_URL:-}"
-CLOUD_DECOMMISSION_URL="${ALFRED_CLOUD_DECOMMISSION_URL:-}"
-CLOUD_ENROLLMENT_STUB_FILE="${ALFRED_CLOUD_ENROLLMENT_STUB_FILE:-}"
-CLOUD_MACHINE_REGION="${ALFRED_CLOUD_MACHINE_REGION:-}"
-CLOUD_TUNNEL_PROVIDER="${ALFRED_CLOUD_TUNNEL_PROVIDER:-wireguard}"
-CLOUD_TUNNEL_PUBLIC_KEY="${ALFRED_CLOUD_TUNNEL_PUBLIC_KEY:-}"
-CLOUD_RUNTIME_VERSION_HINT="${ALFRED_RUNTIME_VERSION_HINT:-}"
+CLOUD_SERVICE_USER="${ZOLVEN_CLOUD_SERVICE_USER:-zolven}"
+CLOUD_API_BASE_URL="${ZOLVEN_CLOUD_API_BASE_URL:-}"
+CLOUD_ENROLLMENT_URL="${ZOLVEN_CLOUD_ENROLLMENT_URL:-}"
+CLOUD_DECOMMISSION_URL="${ZOLVEN_CLOUD_DECOMMISSION_URL:-}"
+CLOUD_ENROLLMENT_STUB_FILE="${ZOLVEN_CLOUD_ENROLLMENT_STUB_FILE:-}"
+CLOUD_MACHINE_REGION="${ZOLVEN_CLOUD_MACHINE_REGION:-}"
+CLOUD_TUNNEL_PROVIDER="${ZOLVEN_CLOUD_TUNNEL_PROVIDER:-wireguard}"
+CLOUD_TUNNEL_PUBLIC_KEY="${ZOLVEN_CLOUD_TUNNEL_PUBLIC_KEY:-}"
+CLOUD_RUNTIME_VERSION_HINT="${ZOLVEN_RUNTIME_VERSION_HINT:-}"
 
 CLOUD_REUSED_EXISTING_BOOTSTRAP=0
 CLOUD_DID_ENROLL=0
@@ -107,30 +108,30 @@ LAST_PROGRESS_REWIND=0
 
 # Print a trailing blank line on exit so the terminal always ends with
 # breathing room. TTY-gated so piped/redirected output stays clean.
-_alfred_exit_trailing_newline() {
+_zolven_exit_trailing_newline() {
   [ -t 1 ] && printf '\n'
   return 0
 }
-trap _alfred_exit_trailing_newline EXIT
+trap _zolven_exit_trailing_newline EXIT
 
-_alfred_remember_progress() {
+_zolven_remember_progress() {
   LAST_PROGRESS_TEXT="$1"
   LAST_PROGRESS_REWIND="${2:-0}"
 }
 
-_alfred_forget_progress() {
+_zolven_forget_progress() {
   LAST_PROGRESS_TEXT=""
   LAST_PROGRESS_REWIND=0
 }
 
 banner() {
-  if [ "${ALFRED_BANNER_SHOWN:-0}" = "1" ]; then
-    _alfred_forget_progress
+  if [ "${ZOLVEN_BANNER_SHOWN:-0}" = "1" ]; then
+    _zolven_forget_progress
     return 0
   fi
-  printf '\n%sAlfred%s %sInstaller%s\n' "$C_BOLD" "$C_RESET" "$C_DIM" "$C_RESET"
-  export ALFRED_BANNER_SHOWN=1
-  _alfred_forget_progress
+  printf '\n%sZolven%s %sInstaller%s\n' "$C_BOLD" "$C_RESET" "$C_DIM" "$C_RESET"
+  export ZOLVEN_BANNER_SHOWN=1
+  _zolven_forget_progress
 }
 
 section() {
@@ -141,31 +142,31 @@ section() {
     title_prefix="$color$C_BOLD"
   fi
   printf '\n%s%s%s\n' "$title_prefix" "$title" "$C_RESET"
-  _alfred_forget_progress
+  _zolven_forget_progress
 }
 
 step() {
-  _alfred_remember_progress "$*" 1
+  _zolven_remember_progress "$*" 1
   printf '  %s%s%s\n' "$C_BOLD" "$*" "$C_RESET"
 }
 
 ok() {
-  _alfred_forget_progress
+  _zolven_forget_progress
   printf '  %s✓%s %s\n' "$C_GREEN" "$C_RESET" "$*"
 }
 
 note() {
-  _alfred_remember_progress "$*" 1
+  _zolven_remember_progress "$*" 1
   printf '    %s%s%s\n' "$C_DIM" "$*" "$C_RESET"
 }
 
 info() {
-  _alfred_forget_progress
+  _zolven_forget_progress
   printf '    %s%s%s\n' "$C_CYAN" "$*" "$C_RESET"
 }
 
 warn() {
-  _alfred_forget_progress
+  _zolven_forget_progress
   printf '  %s!%s %s\n' "$C_YELLOW" "$C_RESET" "$*" >&2
 }
 
@@ -253,27 +254,27 @@ read_secret_with_reveal() {
 }
 
 fail() {
-  _alfred_forget_progress
+  _zolven_forget_progress
   printf '  %s✗%s %s\n' "$C_RED" "$C_RESET" "$*" >&2
   exit 1
 }
 
-ALFRED_SPINNER_FRAMES=(⠋ ⠙ ⠹ ⠸ ⠼ ⠴ ⠦ ⠧ ⠇ ⠏)
+ZOLVEN_SPINNER_FRAMES=(⠋ ⠙ ⠹ ⠸ ⠼ ⠴ ⠦ ⠧ ⠇ ⠏)
 
-_alfred_render_spinner_line() {
+_zolven_render_spinner_line() {
   local message="$1"
   local frame="$2"
   printf '\r\033[2K  %s%s%s %s' "$C_DIM" "$frame" "$C_RESET" "$message"
 }
 
-_alfred_render_status_line() {
+_zolven_render_status_line() {
   local message="$1"
   local mark="$2"
   local color="$3"
   printf '\r\033[2K  %s%s%s %s\n' "$color" "$mark" "$C_RESET" "$message"
 }
 
-_alfred_spin_while() {
+_zolven_spin_while() {
   [ -t 1 ] || return 0
   local pid="$1"
   local message="$2"
@@ -286,8 +287,8 @@ _alfred_spin_while() {
   fi
 
   while kill -0 "$pid" 2>/dev/null; do
-    _alfred_render_spinner_line "$message" "${ALFRED_SPINNER_FRAMES[$i]}"
-    i=$(( (i + 1) % ${#ALFRED_SPINNER_FRAMES[@]} ))
+    _zolven_render_spinner_line "$message" "${ZOLVEN_SPINNER_FRAMES[$i]}"
+    i=$(( (i + 1) % ${#ZOLVEN_SPINNER_FRAMES[@]} ))
     sleep 0.08
   done
 }
@@ -299,7 +300,7 @@ run_quiet() {
   local message="$label"
   local attach=0
   local rewind=0
-  log_file="$(mktemp "${TMPDIR:-/tmp}/alfred-install.XXXXXX")"
+  log_file="$(mktemp "${TMPDIR:-/tmp}/zolven-install.XXXXXX")"
   persisted_log="${log_file}.log"
 
   if [ -n "${LAST_PROGRESS_TEXT:-}" ]; then
@@ -307,12 +308,12 @@ run_quiet() {
     attach=1
     rewind="${LAST_PROGRESS_REWIND:-0}"
   fi
-  _alfred_forget_progress
+  _zolven_forget_progress
 
   if [ -t 1 ]; then
     "$@" >"$log_file" 2>&1 </dev/null &
     cmd_pid=$!
-    _alfred_spin_while "$cmd_pid" "$message" "$attach" "$rewind"
+    _zolven_spin_while "$cmd_pid" "$message" "$attach" "$rewind"
     set +e
     wait "$cmd_pid"
     cmd_status=$?
@@ -326,14 +327,14 @@ run_quiet() {
 
   if [ "${cmd_status:-0}" -eq 0 ]; then
     if [ -t 1 ]; then
-      _alfred_render_status_line "$message" "✓" "$C_GREEN"
+      _zolven_render_status_line "$message" "✓" "$C_GREEN"
     fi
     rm -f "$log_file"
     return 0
   fi
 
   if [ -t 1 ]; then
-    _alfred_render_status_line "$message" "✗" "$C_RED"
+    _zolven_render_status_line "$message" "✗" "$C_RED"
   else
     printf '  ✗ %s\n' "$message" >&2
   fi
@@ -368,7 +369,7 @@ refresh_existing_repo() {
     return 0
   fi
 
-  step "Checking Alfred checkout for updates"
+  step "Checking Zolven checkout for updates"
   run_quiet "repository fetch" git -C "$REPO_DIR" fetch --prune origin
 
   if git -C "$REPO_DIR" show-ref --verify --quiet "refs/remotes/origin/$BRANCH"; then
@@ -390,7 +391,7 @@ refresh_existing_repo() {
     fi
 
     if git -C "$REPO_DIR" merge-base --is-ancestor "$head_sha" "$remote_sha"; then
-      note "Remote has a newer Alfred version available on origin/$BRANCH"
+      note "Remote has a newer Zolven version available on origin/$BRANCH"
       if ! confirm_default_yes "Update local checkout to the latest remote revision?"; then
         note "Leaving local checkout unchanged at $(git -C "$REPO_DIR" rev-parse --short HEAD)"
         return 0
@@ -427,7 +428,7 @@ ensure_sudo_session() {
       note "Administrator access required — you may be prompted for your password"
     fi
     $SUDO -v
-    _alfred_forget_progress
+    _zolven_forget_progress
   fi
 }
 
@@ -435,18 +436,18 @@ usage() {
   cat <<EOF
 Usage: bash install.sh [options]
 
-Canonical Alfred installer entrypoint for a fresh machine or an existing checkout.
+Canonical Zolven installer entrypoint for a fresh machine or an existing checkout.
 The installer supports two product modes:
   • local (default): self-hosted workstation/laptop install
-  • cloud: operator-run VM bootstrap for Alfred Cloud hosted runtimes
+  • cloud: operator-run VM bootstrap for Zolven Cloud hosted runtimes
 
-Cloud installs are infra-only. Customer business setup moves into the Alfred
+Cloud installs are infra-only. Customer business setup moves into the Zolven
 dashboard onboarding flow and must not stay in the terminal.
 
 Options:
   --mode local|cloud       Install mode (default: local)
   --repo-dir PATH          Target repo path (mode-dependent default)
-  --data-dir PATH          Alfred runtime data dir (mode-dependent default)
+  --data-dir PATH          Zolven runtime data dir (mode-dependent default)
   --branch NAME            Git branch to clone or refresh (default: $BRANCH)
   --dev                    Install for local development workflow (local mode only)
   --launchd                Generate and install a per-user LaunchAgent, then load it
@@ -454,31 +455,38 @@ Options:
   --no-systemd             Skip Linux systemd user unit install (local mode)
   --non-interactive        Skip prompts where possible and rely on env/flags for config
   --fresh-db               Explicitly initialize a fresh local DB when none exists
-  --migrate-db PATH        Copy an existing SQLite DB into Alfred runtime if target DB is absent
-  --enrollment-token TOKEN Cloud mode only: one-time Alfred Cloud enrollment token
+  --migrate-db PATH        Copy an existing SQLite DB into Zolven runtime if target DB is absent
+  --enrollment-token TOKEN Cloud mode only: one-time Zolven Cloud enrollment token
   --force-reenroll         Cloud mode only: ignore existing runtime cloud config and enroll again
   --skip-intelligence-wizard
                            Deprecated no-op. Guided setup now runs after install via
-                           'alfred setup' and the focused Alfred CLI commands.
+                           'zolven setup' and the focused Zolven CLI commands.
   --skip-entity-wizard     Deprecated no-op. Entity setup moved out of the main installer.
   --telegram-token-file PATH
-                           Deprecated no-op. Run 'alfred telegram --telegram-token-file PATH'
+                           Deprecated no-op. Run 'zolven telegram --telegram-token-file PATH'
                            after install instead.
-  --no-start               Install Alfred without starting services at the end
+  --no-start               Install Zolven without starting services at the end
   --summary                Print resolved install plan and exit
   --help, -h               Show this help
 
 Environment:
   GITHUB_TOKEN                     GitHub token with read access to $REPO_SLUG
-  ALFRED_INSTALL_MODE              Alternative default for --mode
-  ALFRED_CLOUD_API_BASE_URL        Alfred Cloud control-plane base URL
-  ALFRED_CLOUD_ENROLLMENT_URL      Explicit Alfred Cloud enrollment URL
-  ALFRED_CLOUD_ENROLLMENT_STUB_FILE
+  ZOLVEN_INSTALL_MODE              Alternative default for --mode
+  ZOLVEN_REPO_BRANCH               Runtime repository branch/ref (default: main)
+  ZOLVEN_REPO_DIR                  Runtime repository path override
+  ZOLVEN_DATA_DIR                  Runtime data path override
+  ZOLVEN_WATCH_DIR                 Watched-document path override
+  ZOLVEN_CLI_LAUNCHER              CLI launcher path override
+  ZOLVEN_OPENCLAW_WORKSPACE_DIR    Product-owned OpenClaw workspace override
+  OPENCLAW_WORKSPACE_PARENT_DIR    Upstream OpenClaw workspace parent override
+  ZOLVEN_CLOUD_API_BASE_URL        Zolven Cloud control-plane base URL
+  ZOLVEN_CLOUD_ENROLLMENT_URL      Explicit Zolven Cloud enrollment URL
+  ZOLVEN_CLOUD_ENROLLMENT_STUB_FILE
                                    Dev/test JSON stub for enrollment responses
-  ALFRED_CLOUD_MACHINE_REGION      Optional machine region hint for enrollment
-  ALFRED_CLOUD_TUNNEL_PROVIDER     Tunnel provider preference (default: wireguard)
-  ALFRED_CLOUD_TUNNEL_PUBLIC_KEY   Optional tunnel public key presented at enrollment
-  ALFRED_RUNTIME_VERSION_HINT      Optional runtime version/ref hint sent at enrollment
+  ZOLVEN_CLOUD_MACHINE_REGION      Optional machine region hint for enrollment
+  ZOLVEN_CLOUD_TUNNEL_PROVIDER     Tunnel provider preference (default: wireguard)
+  ZOLVEN_CLOUD_TUNNEL_PUBLIC_KEY   Optional tunnel public key presented at enrollment
+  ZOLVEN_RUNTIME_VERSION_HINT      Optional runtime version/ref hint sent at enrollment
 EOF
 }
 
@@ -510,37 +518,42 @@ detect_os() {
 }
 
 default_local_repo_dir() {
-  printf '%s\n' "$HOME/.local/opt/alfred"
+  printf '%s\n' "$HOME/.local/opt/zolven"
 }
 
 default_cloud_repo_dir() {
-  printf '%s\n' "/opt/alfred"
+  printf '%s\n' "/opt/zolven"
 }
 
 default_local_data_dir() {
-  case "$(uname -s)" in
-    Darwin) printf '%s\n' "$HOME/Library/Application Support/Alfred" ;;
-    *) printf '%s\n' "$HOME/.local/share/alfred" ;;
-  esac
+  printf '%s\n' "$HOME/.local/share/zolven"
 }
 
 default_cloud_data_dir() {
-  printf '%s\n' "/var/lib/alfred"
+  printf '%s\n' "/var/lib/zolven"
 }
 
 default_watch_dir() {
-  printf '%s\n' "$HOME/Documents/Alfred"
+  printf '%s\n' "$HOME/Documents/Zolven"
 }
 
 default_local_cli_launcher() {
   case "$(uname -s):$(id -u)" in
-    Linux:0) printf '%s\n' "/usr/local/bin/alfred" ;;
-    *) printf '%s\n' "$HOME/.local/bin/alfred" ;;
+    Linux:0) printf '%s\n' "/usr/local/bin/zolven" ;;
+    *) printf '%s\n' "$HOME/.local/bin/zolven" ;;
   esac
 }
 
 default_cloud_cli_launcher() {
-  printf '%s\n' "/usr/local/bin/alfred"
+  printf '%s\n' "/usr/local/bin/zolven"
+}
+
+default_openclaw_parent_dir() {
+  if [ "$MODE" = "cloud" ]; then
+    printf '%s\n' "$DATA_DIR/openclaw/workspace"
+  else
+    printf '%s\n' "$HOME/.openclaw/workspace"
+  fi
 }
 
 derive_cloud_api_base_url_from_enrollment_url() {
@@ -562,9 +575,11 @@ resolve_mode_defaults() {
   fi
 
   WATCH_DIR="${RAW_WATCH_DIR:-$(default_watch_dir)}"
-  INSTALL_STATE_FILE="${ALFRED_INSTALL_STATE_FILE:-$DATA_DIR/install/install-state.env}"
-  CLOUD_ENV_FILE="${ALFRED_CLOUD_ENV_FILE:-$DATA_DIR/config/cloud-bootstrap.env}"
-  TUNNEL_ENV_FILE="${ALFRED_CLOUD_TUNNEL_ENV_FILE:-$DATA_DIR/config/tunnel.env}"
+  OPENCLAW_PARENT_DIR="${RAW_OPENCLAW_PARENT_DIR:-$(default_openclaw_parent_dir)}"
+  OPENCLAW_WORKSPACE_DIR="${RAW_OPENCLAW_WORKSPACE_DIR:-$OPENCLAW_PARENT_DIR/zolven}"
+  INSTALL_STATE_FILE="${ZOLVEN_INSTALL_STATE_FILE:-$DATA_DIR/install/install-state.env}"
+  CLOUD_ENV_FILE="${ZOLVEN_CLOUD_ENV_FILE:-$DATA_DIR/config/cloud-bootstrap.env}"
+  TUNNEL_ENV_FILE="${ZOLVEN_CLOUD_TUNNEL_ENV_FILE:-$DATA_DIR/config/tunnel.env}"
 
   if [ -z "$CLOUD_API_BASE_URL" ] && [ -n "$CLOUD_ENROLLMENT_URL" ]; then
     CLOUD_API_BASE_URL="$(derive_cloud_api_base_url_from_enrollment_url)"
@@ -600,19 +615,19 @@ service_manager_name() {
 
 service_units_value() {
   if [ "$MODE" = "cloud" ]; then
-    printf '%s\n' "alfred-api.service alfred-dashboard.service alfred-worker.service alfred-worker.timer alfred-proxy.service alfred-tunnel.service"
+    printf '%s\n' "zolven-api.service zolven-dashboard.service zolven-worker.service zolven-worker.timer zolven-proxy.service zolven-tunnel.service"
     return
   fi
 
   case "$(service_manager_name)" in
-    systemd-user) printf '%s\n' "alfred-api.service alfred-dashboard.service alfred-worker.service alfred-worker.timer" ;;
+    systemd-user) printf '%s\n' "zolven-api.service zolven-dashboard.service zolven-worker.service zolven-worker.timer" ;;
     *) printf '%s\n' "" ;;
   esac
 }
 
 launchd_labels_value() {
   if [ "$MODE" = "local" ] && [ "$(service_manager_name)" = "launchd" ]; then
-    printf '%s\n' "com.sinapsys.alfred.dashboard"
+    printf '%s\n' "ai.zolven.dashboard"
   else
     printf '%s\n' ""
   fi
@@ -647,10 +662,16 @@ load_existing_install_state() {
     return 0
   fi
 
-  INSTALL_ID="${ALFRED_INSTALL_ID:-$INSTALL_ID}"
+  INSTALL_ID="${ZOLVEN_INSTALL_ID:-$INSTALL_ID}"
+  if [ -z "$RAW_OPENCLAW_PARENT_DIR" ]; then
+    OPENCLAW_PARENT_DIR="${OPENCLAW_WORKSPACE_PARENT_DIR:-$OPENCLAW_PARENT_DIR}"
+  fi
+  if [ -z "$RAW_OPENCLAW_WORKSPACE_DIR" ]; then
+    OPENCLAW_WORKSPACE_DIR="${ZOLVEN_OPENCLAW_WORKSPACE_DIR:-$OPENCLAW_WORKSPACE_DIR}"
+  fi
   if [ "$MODE" = "cloud" ]; then
-    CLOUD_TENANT_SLUG="${ALFRED_TENANT_SLUG:-$CLOUD_TENANT_SLUG}"
-    CLOUD_RUNTIME_ID="${ALFRED_RUNTIME_ID:-$CLOUD_RUNTIME_ID}"
+    CLOUD_TENANT_SLUG="${ZOLVEN_TENANT_SLUG:-$CLOUD_TENANT_SLUG}"
+    CLOUD_RUNTIME_ID="${ZOLVEN_RUNTIME_ID:-$CLOUD_RUNTIME_ID}"
   fi
 }
 
@@ -672,70 +693,70 @@ prepare_env_file() {
 persist_install_state() {
   local file="$INSTALL_STATE_FILE"
   prepare_env_file "$file"
-  write_env_assignment "$file" "ALFRED_INSTALL_STATE_SCHEMA" "$INSTALL_STATE_SCHEMA_VERSION"
-  write_env_assignment "$file" "ALFRED_INSTALL_ID" "$INSTALL_ID"
-  write_env_assignment "$file" "ALFRED_INSTALLER_VERSION" "$INSTALLER_VERSION"
-  write_env_assignment "$file" "ALFRED_INSTALL_MODE" "$MODE"
-  write_env_assignment "$file" "ALFRED_INSTALL_STATUS" "$INSTALL_STATUS"
-  write_env_assignment "$file" "ALFRED_REPO_DIR" "$REPO_DIR"
-  write_env_assignment "$file" "ALFRED_DATA_DIR" "$DATA_DIR"
-  write_env_assignment "$file" "ALFRED_WATCH_DIR" "$WATCH_DIR"
-  write_env_assignment "$file" "ALFRED_CLI_LAUNCHER" "$CLI_LAUNCHER_PATH"
+  write_env_assignment "$file" "ZOLVEN_INSTALL_STATE_SCHEMA" "$INSTALL_STATE_SCHEMA_VERSION"
+  write_env_assignment "$file" "ZOLVEN_INSTALL_ID" "$INSTALL_ID"
+  write_env_assignment "$file" "ZOLVEN_INSTALLER_VERSION" "$INSTALLER_VERSION"
+  write_env_assignment "$file" "ZOLVEN_INSTALL_MODE" "$MODE"
+  write_env_assignment "$file" "ZOLVEN_INSTALL_STATUS" "$INSTALL_STATUS"
+  write_env_assignment "$file" "ZOLVEN_REPO_DIR" "$REPO_DIR"
+  write_env_assignment "$file" "ZOLVEN_DATA_DIR" "$DATA_DIR"
+  write_env_assignment "$file" "ZOLVEN_WATCH_DIR" "$WATCH_DIR"
+  write_env_assignment "$file" "ZOLVEN_CLI_LAUNCHER" "$CLI_LAUNCHER_PATH"
   write_env_assignment "$file" "OPENCLAW_WORKSPACE_PARENT_DIR" "$OPENCLAW_PARENT_DIR"
-  write_env_assignment "$file" "OPENCLAW_WORKSPACE_DIR" "$OPENCLAW_WORKSPACE_DIR"
-  write_env_assignment "$file" "ALFRED_SERVICE_MANAGER" "$(service_manager_name)"
-  write_env_assignment "$file" "ALFRED_SERVICE_UNITS" "$(service_units_value)"
-  write_env_assignment "$file" "ALFRED_LAUNCHD_LABELS" "$(launchd_labels_value)"
-  write_env_assignment "$file" "ALFRED_REPO_SLUG" "$REPO_SLUG"
-  write_env_assignment "$file" "ALFRED_REPO_REF" "$BRANCH"
-  write_env_assignment "$file" "ALFRED_INSTALL_STATE_FILE" "$INSTALL_STATE_FILE"
-  write_env_assignment "$file" "ALFRED_CLOUD_ENV_FILE" "$CLOUD_ENV_FILE"
-  write_env_assignment "$file" "ALFRED_CLOUD_TUNNEL_ENV_FILE" "$TUNNEL_ENV_FILE"
-  write_env_assignment "$file" "ALFRED_CLOUD_API_BASE_URL" "$CLOUD_API_BASE_URL"
-  write_env_assignment "$file" "ALFRED_CLOUD_DECOMMISSION_URL" "$CLOUD_DECOMMISSION_URL"
-  write_env_assignment "$file" "ALFRED_CLOUD_SERVICE_USER" "$CLOUD_SERVICE_USER"
-  write_env_assignment "$file" "ALFRED_TENANT_SLUG" "$CLOUD_TENANT_SLUG"
-  write_env_assignment "$file" "ALFRED_RUNTIME_ID" "$CLOUD_RUNTIME_ID"
-  write_env_assignment "$file" "ALFRED_INSTALLED_AT_UTC" "$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+  write_env_assignment "$file" "ZOLVEN_OPENCLAW_WORKSPACE_DIR" "$OPENCLAW_WORKSPACE_DIR"
+  write_env_assignment "$file" "ZOLVEN_SERVICE_MANAGER" "$(service_manager_name)"
+  write_env_assignment "$file" "ZOLVEN_SERVICE_UNITS" "$(service_units_value)"
+  write_env_assignment "$file" "ZOLVEN_LAUNCHD_LABELS" "$(launchd_labels_value)"
+  write_env_assignment "$file" "ZOLVEN_REPO_SLUG" "$REPO_SLUG"
+  write_env_assignment "$file" "ZOLVEN_REPO_REF" "$BRANCH"
+  write_env_assignment "$file" "ZOLVEN_INSTALL_STATE_FILE" "$INSTALL_STATE_FILE"
+  write_env_assignment "$file" "ZOLVEN_CLOUD_ENV_FILE" "$CLOUD_ENV_FILE"
+  write_env_assignment "$file" "ZOLVEN_CLOUD_TUNNEL_ENV_FILE" "$TUNNEL_ENV_FILE"
+  write_env_assignment "$file" "ZOLVEN_CLOUD_API_BASE_URL" "$CLOUD_API_BASE_URL"
+  write_env_assignment "$file" "ZOLVEN_CLOUD_DECOMMISSION_URL" "$CLOUD_DECOMMISSION_URL"
+  write_env_assignment "$file" "ZOLVEN_CLOUD_SERVICE_USER" "$CLOUD_SERVICE_USER"
+  write_env_assignment "$file" "ZOLVEN_TENANT_SLUG" "$CLOUD_TENANT_SLUG"
+  write_env_assignment "$file" "ZOLVEN_RUNTIME_ID" "$CLOUD_RUNTIME_ID"
+  write_env_assignment "$file" "ZOLVEN_INSTALLED_AT_UTC" "$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
 }
 
 persist_cloud_config() {
   [ "$MODE" = "cloud" ] || return 0
 
   prepare_env_file "$CLOUD_ENV_FILE"
-  write_env_assignment "$CLOUD_ENV_FILE" "ALFRED_INSTALL_MODE" "$MODE"
-  write_env_assignment "$CLOUD_ENV_FILE" "ALFRED_TENANT_ID" "$CLOUD_TENANT_ID"
-  write_env_assignment "$CLOUD_ENV_FILE" "ALFRED_TENANT_SLUG" "$CLOUD_TENANT_SLUG"
-  write_env_assignment "$CLOUD_ENV_FILE" "ALFRED_RUNTIME_ID" "$CLOUD_RUNTIME_ID"
-  write_env_assignment "$CLOUD_ENV_FILE" "ALFRED_RUNTIME_SECRET" "$CLOUD_RUNTIME_SECRET"
-  write_env_assignment "$CLOUD_ENV_FILE" "ALFRED_CLOUD_API_BASE_URL" "$CLOUD_API_BASE_URL"
-  write_env_assignment "$CLOUD_ENV_FILE" "ALFRED_CLOUD_ENROLLMENT_URL" "$CLOUD_ENROLLMENT_URL"
-  write_env_assignment "$CLOUD_ENV_FILE" "ALFRED_CLOUD_DECOMMISSION_URL" "$CLOUD_DECOMMISSION_URL"
-  write_env_assignment "$CLOUD_ENV_FILE" "ALFRED_CLOUD_EDGE_ISSUER" "$CLOUD_EDGE_ISSUER"
-  write_env_assignment "$CLOUD_ENV_FILE" "ALFRED_CLOUD_EDGE_AUDIENCE" "$CLOUD_EDGE_AUDIENCE"
-  write_env_assignment "$CLOUD_ENV_FILE" "ALFRED_CLOUD_EDGE_JWKS_URL" "$CLOUD_EDGE_JWKS_URL"
-  write_env_assignment "$CLOUD_ENV_FILE" "ALFRED_CLOUD_HEARTBEAT_INTERVAL_S" "$CLOUD_HEARTBEAT_INTERVAL_S"
-  write_env_assignment "$CLOUD_ENV_FILE" "ALFRED_CLOUD_SERVICE_USER" "$CLOUD_SERVICE_USER"
+  write_env_assignment "$CLOUD_ENV_FILE" "ZOLVEN_INSTALL_MODE" "$MODE"
+  write_env_assignment "$CLOUD_ENV_FILE" "ZOLVEN_TENANT_ID" "$CLOUD_TENANT_ID"
+  write_env_assignment "$CLOUD_ENV_FILE" "ZOLVEN_TENANT_SLUG" "$CLOUD_TENANT_SLUG"
+  write_env_assignment "$CLOUD_ENV_FILE" "ZOLVEN_RUNTIME_ID" "$CLOUD_RUNTIME_ID"
+  write_env_assignment "$CLOUD_ENV_FILE" "ZOLVEN_RUNTIME_SECRET" "$CLOUD_RUNTIME_SECRET"
+  write_env_assignment "$CLOUD_ENV_FILE" "ZOLVEN_CLOUD_API_BASE_URL" "$CLOUD_API_BASE_URL"
+  write_env_assignment "$CLOUD_ENV_FILE" "ZOLVEN_CLOUD_ENROLLMENT_URL" "$CLOUD_ENROLLMENT_URL"
+  write_env_assignment "$CLOUD_ENV_FILE" "ZOLVEN_CLOUD_DECOMMISSION_URL" "$CLOUD_DECOMMISSION_URL"
+  write_env_assignment "$CLOUD_ENV_FILE" "ZOLVEN_CLOUD_EDGE_ISSUER" "$CLOUD_EDGE_ISSUER"
+  write_env_assignment "$CLOUD_ENV_FILE" "ZOLVEN_CLOUD_EDGE_AUDIENCE" "$CLOUD_EDGE_AUDIENCE"
+  write_env_assignment "$CLOUD_ENV_FILE" "ZOLVEN_CLOUD_EDGE_JWKS_URL" "$CLOUD_EDGE_JWKS_URL"
+  write_env_assignment "$CLOUD_ENV_FILE" "ZOLVEN_HEARTBEAT_INTERVAL_S" "$CLOUD_HEARTBEAT_INTERVAL_S"
+  write_env_assignment "$CLOUD_ENV_FILE" "ZOLVEN_CLOUD_SERVICE_USER" "$CLOUD_SERVICE_USER"
 }
 
 persist_tunnel_config() {
   [ "$MODE" = "cloud" ] || return 0
 
   prepare_env_file "$TUNNEL_ENV_FILE"
-  write_env_assignment "$TUNNEL_ENV_FILE" "ALFRED_CLOUD_TUNNEL_PROVIDER" "$CLOUD_TUNNEL_PROVIDER"
-  write_env_assignment "$TUNNEL_ENV_FILE" "ALFRED_CLOUD_TUNNEL_PUBLIC_KEY" "$CLOUD_TUNNEL_PUBLIC_KEY"
-  write_env_assignment "$TUNNEL_ENV_FILE" "ALFRED_CLOUD_TUNNEL_CONFIG_JSON" "$CLOUD_TUNNEL_CONFIG_JSON"
+  write_env_assignment "$TUNNEL_ENV_FILE" "ZOLVEN_CLOUD_TUNNEL_PROVIDER" "$CLOUD_TUNNEL_PROVIDER"
+  write_env_assignment "$TUNNEL_ENV_FILE" "ZOLVEN_CLOUD_TUNNEL_PUBLIC_KEY" "$CLOUD_TUNNEL_PUBLIC_KEY"
+  write_env_assignment "$TUNNEL_ENV_FILE" "ZOLVEN_CLOUD_TUNNEL_CONFIG_JSON" "$CLOUD_TUNNEL_CONFIG_JSON"
 }
 
 warn_deprecated_flags() {
   if [ "$USER_SET_SKIP_OPENCLAW_WIZARD" -eq 1 ]; then
-    warn "--skip-intelligence-wizard is deprecated and ignored — guided setup now runs after install via 'alfred setup'"
+    warn "--skip-intelligence-wizard is deprecated and ignored — guided setup now runs after install via 'zolven setup'"
   fi
   if [ "$USER_SET_SKIP_ENTITY_WIZARD" -eq 1 ]; then
-    warn "--skip-entity-wizard is deprecated and ignored — run 'alfred entities' after install if you need it"
+    warn "--skip-entity-wizard is deprecated and ignored — run 'zolven entities' after install if you need it"
   fi
   if [ "$USER_SET_TELEGRAM_TOKEN_FILE" -eq 1 ]; then
-    warn "--telegram-token-file is deprecated and ignored during install — run 'alfred telegram --telegram-token-file PATH' after install"
+    warn "--telegram-token-file is deprecated and ignored during install — run 'zolven telegram --telegram-token-file PATH' after install"
   fi
 }
 
@@ -795,11 +816,14 @@ enforce_runtime_host_constraints() {
 print_summary() {
   cat <<EOF
 installer_version=$INSTALLER_VERSION
+runtime_contract_version=$RUNTIME_CONTRACT_VERSION
 mode=$MODE
 repo_dir=$REPO_DIR
 data_dir=$DATA_DIR
 watch_dir=$WATCH_DIR
 cli_launcher=$CLI_LAUNCHER_PATH
+openclaw_parent_dir=$OPENCLAW_PARENT_DIR
+openclaw_workspace_dir=$OPENCLAW_WORKSPACE_DIR
 branch=$BRANCH
 repo_slug=$REPO_SLUG
 service_manager=$(service_manager_name)
@@ -870,7 +894,7 @@ ensure_github_cli() {
       ok "GitHub CLI and git ready"
       ;;
     *)
-      fail "GitHub CLI and git are required to fetch the private Alfred repo. Install them manually, then re-run."
+      fail "GitHub CLI and git are required to fetch the private Zolven repo. Install them manually, then re-run."
       ;;
   esac
 }
@@ -916,13 +940,39 @@ ensure_github_auth() {
     note "A GitHub token with read access to $REPO_SLUG is required"
     read_secret_with_reveal GITHUB_TOKEN "  GitHub token for $REPO_SLUG: "
 
-    [ -n "$GITHUB_TOKEN" ] || fail "GitHub token is required to fetch the private Alfred repo."
+    [ -n "$GITHUB_TOKEN" ] || fail "GitHub token is required to fetch the private Zolven repo."
   fi
 
   step "Authenticating GitHub"
   gh auth login --hostname github.com --with-token <<< "$GITHUB_TOKEN" >/dev/null
   gh auth setup-git >/dev/null 2>&1 || true
   ok "GitHub authenticated"
+}
+
+repo_origin_matches_contract() {
+  local origin_url
+  origin_url="$(git -C "$REPO_DIR" remote get-url origin 2>/dev/null || true)"
+  case "$origin_url" in
+    https://github.com/Zolven/zolven|https://github.com/Zolven/zolven.git|git@github.com:Zolven/zolven.git|ssh://git@github.com/Zolven/zolven.git)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+validate_remote_runtime_contract() {
+  local contract_version
+  contract_version="$(gh api \
+    --method GET \
+    -H 'Accept: application/vnd.github.raw+json' \
+    "repos/$REPO_SLUG/contents/.zolven-install-contract" \
+    -f "ref=$BRANCH" 2>/dev/null || true)"
+
+  if [ "$contract_version" != "$RUNTIME_CONTRACT_VERSION" ]; then
+    fail "Zolven/zolven@$BRANCH does not publish install contract v$RUNTIME_CONTRACT_VERSION. Installation is blocked before clone or cloud enrollment."
+  fi
 }
 
 ensure_writable_directory() {
@@ -990,24 +1040,24 @@ maybe_load_existing_cloud_bootstrap() {
 
   load_env_file "$CLOUD_ENV_FILE"
 
-  CLOUD_TENANT_ID="${ALFRED_TENANT_ID:-$CLOUD_TENANT_ID}"
-  CLOUD_TENANT_SLUG="${ALFRED_TENANT_SLUG:-$CLOUD_TENANT_SLUG}"
-  CLOUD_RUNTIME_ID="${ALFRED_RUNTIME_ID:-$CLOUD_RUNTIME_ID}"
-  CLOUD_RUNTIME_SECRET="${ALFRED_RUNTIME_SECRET:-$CLOUD_RUNTIME_SECRET}"
-  CLOUD_API_BASE_URL="${ALFRED_CLOUD_API_BASE_URL:-$CLOUD_API_BASE_URL}"
-  CLOUD_ENROLLMENT_URL="${ALFRED_CLOUD_ENROLLMENT_URL:-$CLOUD_ENROLLMENT_URL}"
-  CLOUD_DECOMMISSION_URL="${ALFRED_CLOUD_DECOMMISSION_URL:-$CLOUD_DECOMMISSION_URL}"
-  CLOUD_EDGE_ISSUER="${ALFRED_CLOUD_EDGE_ISSUER:-$CLOUD_EDGE_ISSUER}"
-  CLOUD_EDGE_AUDIENCE="${ALFRED_CLOUD_EDGE_AUDIENCE:-$CLOUD_EDGE_AUDIENCE}"
-  CLOUD_EDGE_JWKS_URL="${ALFRED_CLOUD_EDGE_JWKS_URL:-$CLOUD_EDGE_JWKS_URL}"
-  CLOUD_HEARTBEAT_INTERVAL_S="${ALFRED_CLOUD_HEARTBEAT_INTERVAL_S:-$CLOUD_HEARTBEAT_INTERVAL_S}"
-  CLOUD_SERVICE_USER="${ALFRED_CLOUD_SERVICE_USER:-$CLOUD_SERVICE_USER}"
+  CLOUD_TENANT_ID="${ZOLVEN_TENANT_ID:-$CLOUD_TENANT_ID}"
+  CLOUD_TENANT_SLUG="${ZOLVEN_TENANT_SLUG:-$CLOUD_TENANT_SLUG}"
+  CLOUD_RUNTIME_ID="${ZOLVEN_RUNTIME_ID:-$CLOUD_RUNTIME_ID}"
+  CLOUD_RUNTIME_SECRET="${ZOLVEN_RUNTIME_SECRET:-$CLOUD_RUNTIME_SECRET}"
+  CLOUD_API_BASE_URL="${ZOLVEN_CLOUD_API_BASE_URL:-$CLOUD_API_BASE_URL}"
+  CLOUD_ENROLLMENT_URL="${ZOLVEN_CLOUD_ENROLLMENT_URL:-$CLOUD_ENROLLMENT_URL}"
+  CLOUD_DECOMMISSION_URL="${ZOLVEN_CLOUD_DECOMMISSION_URL:-$CLOUD_DECOMMISSION_URL}"
+  CLOUD_EDGE_ISSUER="${ZOLVEN_CLOUD_EDGE_ISSUER:-$CLOUD_EDGE_ISSUER}"
+  CLOUD_EDGE_AUDIENCE="${ZOLVEN_CLOUD_EDGE_AUDIENCE:-$CLOUD_EDGE_AUDIENCE}"
+  CLOUD_EDGE_JWKS_URL="${ZOLVEN_CLOUD_EDGE_JWKS_URL:-$CLOUD_EDGE_JWKS_URL}"
+  CLOUD_HEARTBEAT_INTERVAL_S="${ZOLVEN_HEARTBEAT_INTERVAL_S:-$CLOUD_HEARTBEAT_INTERVAL_S}"
+  CLOUD_SERVICE_USER="${ZOLVEN_CLOUD_SERVICE_USER:-$CLOUD_SERVICE_USER}"
 
   if [ -f "$TUNNEL_ENV_FILE" ]; then
     load_env_file "$TUNNEL_ENV_FILE"
-    CLOUD_TUNNEL_PROVIDER="${ALFRED_CLOUD_TUNNEL_PROVIDER:-$CLOUD_TUNNEL_PROVIDER}"
-    CLOUD_TUNNEL_PUBLIC_KEY="${ALFRED_CLOUD_TUNNEL_PUBLIC_KEY:-$CLOUD_TUNNEL_PUBLIC_KEY}"
-    CLOUD_TUNNEL_CONFIG_JSON="${ALFRED_CLOUD_TUNNEL_CONFIG_JSON:-$CLOUD_TUNNEL_CONFIG_JSON}"
+    CLOUD_TUNNEL_PROVIDER="${ZOLVEN_CLOUD_TUNNEL_PROVIDER:-$CLOUD_TUNNEL_PROVIDER}"
+    CLOUD_TUNNEL_PUBLIC_KEY="${ZOLVEN_CLOUD_TUNNEL_PUBLIC_KEY:-$CLOUD_TUNNEL_PUBLIC_KEY}"
+    CLOUD_TUNNEL_CONFIG_JSON="${ZOLVEN_CLOUD_TUNNEL_CONFIG_JSON:-$CLOUD_TUNNEL_CONFIG_JSON}"
   fi
 
   if [ -n "$CLOUD_RUNTIME_ID" ] && [ -n "$CLOUD_RUNTIME_SECRET" ]; then
@@ -1034,7 +1084,7 @@ maybe_override_branch_from_enrollment() {
   runtime_ref="$(printf '%s' "$response" | jq -r '(.runtime_ref // .runtime_repo_ref // .runtime.ref // empty)' 2>/dev/null || true)"
   if [ -n "$runtime_ref" ] && [ "$runtime_ref" != "null" ]; then
     BRANCH="$runtime_ref"
-    note "Alfred Cloud pinned runtime ref: $BRANCH"
+    note "Zolven Cloud pinned runtime ref: $BRANCH"
   fi
 }
 
@@ -1051,7 +1101,7 @@ enroll_cloud_runtime() {
 
   [ -n "$ENROLLMENT_TOKEN" ] || fail "Cloud mode requires --enrollment-token TOKEN."
   [ -n "$CLOUD_ENROLLMENT_STUB_FILE" ] || [ -n "$CLOUD_ENROLLMENT_URL" ] || [ -n "$CLOUD_API_BASE_URL" ] || \
-    fail "Cloud mode requires ALFRED_CLOUD_ENROLLMENT_URL or ALFRED_CLOUD_API_BASE_URL (or ALFRED_CLOUD_ENROLLMENT_STUB_FILE for dev/test)."
+    fail "Cloud mode requires ZOLVEN_CLOUD_ENROLLMENT_URL or ZOLVEN_CLOUD_API_BASE_URL (or ZOLVEN_CLOUD_ENROLLMENT_STUB_FILE for dev/test)."
 
   ensure_jq
   need_cmd curl
@@ -1106,7 +1156,7 @@ enroll_cloud_runtime() {
     step "Loading cloud enrollment stub"
     response="$(<"$CLOUD_ENROLLMENT_STUB_FILE")"
   else
-    step "Enrolling runtime with Alfred Cloud"
+    step "Enrolling runtime with Zolven Cloud"
     response="$(curl -fsSL \
       --connect-timeout 10 \
       --max-time 30 \
@@ -1175,41 +1225,98 @@ invoke_runtime_install() {
     install_args+=(--no-start)
   fi
 
-  step "Preparing Alfred runtime"
+  step "Preparing Zolven runtime"
   bash "$REPO_DIR/scripts/bootstrap-host.sh"
 
-  step "Installing Alfred"
+  step "Installing Zolven"
   set +e
   env \
-    ALFRED_INSTALL_ORIGINAL_PATH="$ORIGINAL_PATH" \
-    ALFRED_REPO_DIR="$REPO_DIR" \
-    ALFRED_REPO_BRANCH="$BRANCH" \
-    ALFRED_REPO_URL="https://github.com/$REPO_SLUG.git" \
-    ALFRED_REPO_PREPARED=1 \
-    ALFRED_INSTALL_MODE="$MODE" \
-    ALFRED_DEPLOYMENT_MODE="$MODE" \
-    ALFRED_INSTALL_STATE_FILE="$INSTALL_STATE_FILE" \
-    ALFRED_CLOUD_ENV_FILE="$CLOUD_ENV_FILE" \
-    ALFRED_CLOUD_TUNNEL_ENV_FILE="$TUNNEL_ENV_FILE" \
-    ALFRED_CLOUD_SERVICE_USER="$CLOUD_SERVICE_USER" \
-    ALFRED_CLOUD_API_BASE_URL="$CLOUD_API_BASE_URL" \
-    ALFRED_CLOUD_ENROLLMENT_URL="$CLOUD_ENROLLMENT_URL" \
-    ALFRED_CLOUD_DECOMMISSION_URL="$CLOUD_DECOMMISSION_URL" \
-    ALFRED_TENANT_ID="$CLOUD_TENANT_ID" \
-    ALFRED_TENANT_SLUG="$CLOUD_TENANT_SLUG" \
-    ALFRED_RUNTIME_ID="$CLOUD_RUNTIME_ID" \
-    ALFRED_RUNTIME_SECRET="$CLOUD_RUNTIME_SECRET" \
-    ALFRED_CLOUD_EDGE_ISSUER="$CLOUD_EDGE_ISSUER" \
-    ALFRED_CLOUD_EDGE_AUDIENCE="$CLOUD_EDGE_AUDIENCE" \
-    ALFRED_CLOUD_EDGE_JWKS_URL="$CLOUD_EDGE_JWKS_URL" \
-    ALFRED_CLOUD_HEARTBEAT_INTERVAL_S="$CLOUD_HEARTBEAT_INTERVAL_S" \
-    ALFRED_CLOUD_TUNNEL_PROVIDER="$CLOUD_TUNNEL_PROVIDER" \
-    ALFRED_CLOUD_TUNNEL_CONFIG_JSON="$CLOUD_TUNNEL_CONFIG_JSON" \
+    ZOLVEN_INSTALL_ORIGINAL_PATH="$ORIGINAL_PATH" \
+    ZOLVEN_INSTALL_CONTRACT_VERSION="$RUNTIME_CONTRACT_VERSION" \
+    ZOLVEN_REPO_DIR="$REPO_DIR" \
+    ZOLVEN_REPO_BRANCH="$BRANCH" \
+    ZOLVEN_REPO_URL="https://github.com/$REPO_SLUG.git" \
+    ZOLVEN_REPO_PREPARED=1 \
+    ZOLVEN_INSTALL_MODE="$MODE" \
+    ZOLVEN_DEPLOYMENT_MODE="$MODE" \
+    ZOLVEN_INSTALL_STATE_FILE="$INSTALL_STATE_FILE" \
+    ZOLVEN_CLOUD_ENV_FILE="$CLOUD_ENV_FILE" \
+    ZOLVEN_CLOUD_TUNNEL_ENV_FILE="$TUNNEL_ENV_FILE" \
+    ZOLVEN_CLOUD_SERVICE_USER="$CLOUD_SERVICE_USER" \
+    ZOLVEN_CLOUD_API_BASE_URL="$CLOUD_API_BASE_URL" \
+    ZOLVEN_CLOUD_ENROLLMENT_URL="$CLOUD_ENROLLMENT_URL" \
+    ZOLVEN_CLOUD_DECOMMISSION_URL="$CLOUD_DECOMMISSION_URL" \
+    ZOLVEN_TENANT_ID="$CLOUD_TENANT_ID" \
+    ZOLVEN_TENANT_SLUG="$CLOUD_TENANT_SLUG" \
+    ZOLVEN_RUNTIME_ID="$CLOUD_RUNTIME_ID" \
+    ZOLVEN_RUNTIME_SECRET="$CLOUD_RUNTIME_SECRET" \
+    ZOLVEN_CLOUD_EDGE_ISSUER="$CLOUD_EDGE_ISSUER" \
+    ZOLVEN_CLOUD_EDGE_AUDIENCE="$CLOUD_EDGE_AUDIENCE" \
+    ZOLVEN_CLOUD_EDGE_JWKS_URL="$CLOUD_EDGE_JWKS_URL" \
+    ZOLVEN_HEARTBEAT_INTERVAL_S="$CLOUD_HEARTBEAT_INTERVAL_S" \
+    ZOLVEN_CLOUD_TUNNEL_PROVIDER="$CLOUD_TUNNEL_PROVIDER" \
+    ZOLVEN_CLOUD_TUNNEL_CONFIG_JSON="$CLOUD_TUNNEL_CONFIG_JSON" \
+    ZOLVEN_OPENCLAW_WORKSPACE_DIR="$OPENCLAW_WORKSPACE_DIR" \
+    OPENCLAW_WORKSPACE_PARENT_DIR="$OPENCLAW_PARENT_DIR" \
     bash "$REPO_DIR/scripts/install.sh" "${install_args[@]}"
   runtime_exit=$?
   set -e
 
   return "$runtime_exit"
+}
+
+runtime_contract_has() {
+  local identifier="$1"
+  local path
+  local -a contract_paths=()
+
+  for path in bin scripts packages templates package.json; do
+    if [ -e "$REPO_DIR/$path" ]; then
+      contract_paths+=("$path")
+    fi
+  done
+  [ "${#contract_paths[@]}" -gt 0 ] || return 1
+
+  git -C "$REPO_DIR" grep -Fq "$identifier" -- "${contract_paths[@]}" 2>/dev/null
+}
+
+validate_runtime_contract() {
+  local contract_file="$REPO_DIR/.zolven-install-contract"
+  local contract_version="" identifier missing=""
+
+  if [ ! -x "$REPO_DIR/bin/zolven" ]; then
+    missing=" bin/zolven"
+  fi
+  if [ -f "$contract_file" ]; then
+    contract_version="$(<"$contract_file")"
+  fi
+  if [ "$contract_version" != "$RUNTIME_CONTRACT_VERSION" ]; then
+    missing="$missing .zolven-install-contract=$RUNTIME_CONTRACT_VERSION"
+  fi
+
+  for identifier in \
+    ZOLVEN_INSTALL_CONTRACT_VERSION \
+    ZOLVEN_REPO_DIR \
+    ZOLVEN_DATA_DIR \
+    ZOLVEN_INSTALL_MODE \
+    ZOLVEN_DEPLOYMENT_MODE \
+    ZOLVEN_OPENCLAW_WORKSPACE_DIR \
+    zolven-api.service \
+    zolven-dashboard.service \
+    zolven-worker.service \
+    zolven-worker.timer \
+    zolven-proxy.service \
+    zolven-tunnel.service \
+    @zolven/zolven-intelligence
+  do
+    if ! runtime_contract_has "$identifier"; then
+      missing="$missing $identifier"
+    fi
+  done
+
+  if [ -n "$missing" ]; then
+    fail "The checked-out runtime does not expose Zolven install contract v$RUNTIME_CONTRACT_VERSION (missing:$missing). Installation is blocked until Zolven/zolven ships matching CLI, path, environment, service, workspace, and Intelligence identifiers."
+  fi
 }
 
 print_cloud_handoff() {
@@ -1282,7 +1389,6 @@ while [ "$#" -gt 0 ]; do
       ;;
     --telegram-token-file)
       shift
-      TELEGRAM_TOKEN_FILE="${1:-}"
       USER_SET_TELEGRAM_TOKEN_FILE=1
       ;;
     --no-start)
@@ -1306,7 +1412,6 @@ if [ "$MODE" = "cloud" ]; then
   NON_INTERACTIVE=1
   SKIP_OPENCLAW_WIZARD=1
   SKIP_ENTITY_WIZARD=1
-  TELEGRAM_TOKEN_FILE=""
 fi
 
 resolve_mode_defaults
@@ -1329,7 +1434,7 @@ banner
 warn_deprecated_flags
 
 if [ "$AUTO_FRESH_DB" -eq 1 ]; then
-  note "Fresh install detected — Alfred will create a local database at $DEFAULT_DB_PATH"
+  note "Fresh install detected — Zolven will create a local database at $DEFAULT_DB_PATH"
 fi
 
 enforce_runtime_host_constraints
@@ -1349,6 +1454,7 @@ ensure_github_cli
 ensure_github_auth
 need_cmd git
 need_cmd curl
+validate_remote_runtime_contract
 
 if [ "$MODE" = "cloud" ]; then
   enroll_cloud_runtime
@@ -1357,13 +1463,16 @@ fi
 
 section "Repository" "$C_BLUE"
 if [ ! -d "$REPO_DIR/.git" ]; then
-  step "Cloning Alfred into $REPO_DIR"
+  step "Cloning Zolven into $REPO_DIR"
   if [ -n "$BRANCH" ]; then
     run_quiet "repository clone" gh repo clone "$REPO_SLUG" "$REPO_DIR" -- --branch "$BRANCH"
   else
     run_quiet "repository clone" gh repo clone "$REPO_SLUG" "$REPO_DIR"
   fi
 else
+  if ! repo_origin_matches_contract; then
+    fail "Existing checkout at $REPO_DIR does not target https://github.com/Zolven/zolven.git; refusing to update it."
+  fi
   ok "Using existing repo at $REPO_DIR"
   refresh_existing_repo
 fi
@@ -1371,11 +1480,12 @@ fi
 cd "$REPO_DIR"
 
 if [ ! -f "$REPO_DIR/scripts/bootstrap-host.sh" ]; then
-  fail "Expected Alfred host bootstrap at $REPO_DIR/scripts/bootstrap-host.sh. Existing checkout may be stale; remove $REPO_DIR or clean it and rerun the installer."
+  fail "Expected Zolven host bootstrap at $REPO_DIR/scripts/bootstrap-host.sh. Existing checkout may be stale; remove $REPO_DIR or clean it and rerun the installer."
 fi
 if [ ! -f "$REPO_DIR/scripts/install.sh" ]; then
-  fail "Expected Alfred installer at $REPO_DIR/scripts/install.sh. Existing checkout may be stale; remove $REPO_DIR or clean it and rerun the installer."
+  fail "Expected Zolven installer at $REPO_DIR/scripts/install.sh. Existing checkout may be stale; remove $REPO_DIR or clean it and rerun the installer."
 fi
+validate_runtime_contract
 
 INSTALL_STATUS="runtime_install"
 persist_install_state
