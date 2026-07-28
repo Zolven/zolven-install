@@ -1028,8 +1028,8 @@ stage_purge_intelligence_cli() {
     return 0
   fi
   say "Uninstalling Zolven Intelligence CLI"
-  npm uninstall -g --prefix "$HOME/.local" "@zolven/zolven-intelligence" >/dev/null 2>&1 || true
-  npm uninstall -g "@zolven/zolven-intelligence" >/dev/null 2>&1 || true
+  npm uninstall -g --prefix "$HOME/.local" "@zolven/intelligence" >/dev/null 2>&1 || true
+  npm uninstall -g "@zolven/intelligence" >/dev/null 2>&1 || true
 }
 
 resolve_defaults
