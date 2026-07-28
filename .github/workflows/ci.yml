@@ -1,0 +1,65 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  shell-tests:
+    name: shell tests (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - macos-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Ensure ShellCheck is available
+        shell: bash
+        run: |
+          set -euo pipefail
+          if command -v shellcheck >/dev/null 2>&1; then
+            shellcheck --version
+            exit 0
+          fi
+
+          case "$RUNNER_OS" in
+            Linux)
+              sudo apt-get update
+              sudo apt-get install -y shellcheck
+              ;;
+            macOS)
+              brew install shellcheck
+              ;;
+            *)
+              echo "Unsupported runner OS: $RUNNER_OS" >&2
+              exit 1
+              ;;
+          esac
+
+      - name: Validate shell syntax
+        run: bash -n install.sh cleanup.sh
+
+      - name: Run ShellCheck
+        shell: bash
+        run: git ls-files -z -- '*.sh' | xargs -0 shellcheck
+
+      - name: Test installer contract
+        run: bash test-install-contract.sh
+
+      - name: Test Himalaya cleanup
+        run: bash test-cleanup-himalaya.sh
+
+      - name: Test cleanup safety
+        run: bash test-cleanup-safety.sh
