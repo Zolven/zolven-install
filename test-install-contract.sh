@@ -144,7 +144,7 @@ gh() {
   printf '%s\n' "$*" >>"$remote_contract_log"
   printf '%s' "$REMOTE_CONTRACT_VERSION"
 }
-# shellcheck disable=SC2329
+# shellcheck disable=SC2317,SC2329
 fail() { return 1; }
 # shellcheck disable=SC2034
 REPO_SLUG="Zolven/zolven"
