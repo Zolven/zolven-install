@@ -963,15 +963,16 @@ repo_origin_matches_contract() {
 }
 
 validate_remote_runtime_contract() {
+  local runtime_ref="${1:-$BRANCH}"
   local contract_version
   contract_version="$(gh api \
     --method GET \
     -H 'Accept: application/vnd.github.raw+json' \
     "repos/$REPO_SLUG/contents/.zolven-install-contract" \
-    -f "ref=$BRANCH" 2>/dev/null || true)"
+    -f "ref=$runtime_ref" 2>/dev/null || true)"
 
   if [ "$contract_version" != "$RUNTIME_CONTRACT_VERSION" ]; then
-    fail "Zolven/zolven@$BRANCH does not publish install contract v$RUNTIME_CONTRACT_VERSION. Installation is blocked before clone or cloud enrollment."
+    fail "Zolven/zolven@$runtime_ref does not publish install contract v$RUNTIME_CONTRACT_VERSION. Installation is blocked before clone or runtime bootstrap."
   fi
 }
 
@@ -1167,6 +1168,7 @@ enroll_cloud_runtime() {
   fi
 
   maybe_override_branch_from_enrollment "$response"
+  validate_remote_runtime_contract "$BRANCH"
   CLOUD_RUNTIME_ID="$(enrollment_response_value "$response" '.runtime_id' 'runtime_id')"
   CLOUD_TENANT_ID="$(enrollment_response_value "$response" '.tenant_id' 'tenant_id')"
   CLOUD_TENANT_SLUG="$(enrollment_response_value "$response" '.tenant_slug' 'tenant_slug')"
@@ -1307,7 +1309,7 @@ validate_runtime_contract() {
     zolven-worker.timer \
     zolven-proxy.service \
     zolven-tunnel.service \
-    @zolven/zolven-intelligence
+    @zolven/intelligence
   do
     if ! runtime_contract_has "$identifier"; then
       missing="$missing $identifier"

@@ -3,9 +3,11 @@ set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 INSTALLER="$HERE/install.sh"
+CLEANUP="$HERE/cleanup.sh"
 ROOT="$(mktemp -d "${TMPDIR:-/tmp}/installer-contract.XXXXXX")"
 PASS=0
 FAIL=0
+INTELLIGENCE_PACKAGE="@zolven/intelligence"
 REQUIRED_IDENTIFIERS=(
   ZOLVEN_INSTALL_CONTRACT_VERSION
   ZOLVEN_REPO_DIR
@@ -19,7 +21,7 @@ REQUIRED_IDENTIFIERS=(
   zolven-worker.timer
   zolven-proxy.service
   zolven-tunnel.service
-  @zolven/zolven-intelligence
+  "$INTELLIGENCE_PACKAGE"
 )
 
 finish() {
@@ -121,6 +123,101 @@ for required_identifier in "${REQUIRED_IDENTIFIERS[@]}"; do
   fi
 done
 
+if grep -Fq "$INTELLIGENCE_PACKAGE" <<<"$validator_body"; then
+  check 0 "runtime contract targets the exact $INTELLIGENCE_PACKAGE package identity"
+else
+  check 1 "runtime contract targets the exact $INTELLIGENCE_PACKAGE package identity"
+fi
+
+remote_contract_function="$ROOT/remote-contract-function.sh"
+awk '
+  /^validate_remote_runtime_contract\(\) \{/ { capture=1 }
+  capture { print }
+  capture && /^}/ { exit }
+' "$INSTALLER" >"$remote_contract_function"
+# shellcheck disable=SC1090
+. "$remote_contract_function"
+
+remote_contract_log="$ROOT/remote-contract.log"
+REMOTE_CONTRACT_VERSION="1"
+gh() {
+  printf '%s\n' "$*" >>"$remote_contract_log"
+  printf '%s' "$REMOTE_CONTRACT_VERSION"
+}
+# shellcheck disable=SC2329
+fail() { return 1; }
+# shellcheck disable=SC2034
+REPO_SLUG="Zolven/zolven"
+# shellcheck disable=SC2034
+RUNTIME_CONTRACT_VERSION="1"
+
+if validate_remote_runtime_contract "release-zolven"; then
+  check 0 "remote runtime gate accepts the required contract version"
+else
+  check 1 "remote runtime gate accepts the required contract version"
+fi
+if grep -Fq "ref=release-zolven" "$remote_contract_log"; then
+  check 0 "remote runtime gate validates the selected runtime ref"
+else
+  check 1 "remote runtime gate validates the selected runtime ref"
+fi
+
+REMOTE_CONTRACT_VERSION="0"
+if validate_remote_runtime_contract "incompatible-ref"; then
+  check 1 "remote runtime gate rejects an incompatible contract version"
+else
+  check 0 "remote runtime gate rejects an incompatible contract version"
+fi
+
+enrollment_body="$(awk '
+  /^enroll_cloud_runtime\(\) \{/ { capture=1 }
+  capture { print }
+  capture && /^}/ { exit }
+' "$INSTALLER")"
+# shellcheck disable=SC2016
+override_line="$(grep -n 'maybe_override_branch_from_enrollment "\$response"' <<<"$enrollment_body" | cut -d: -f1)"
+# shellcheck disable=SC2016
+selected_ref_gate_line="$(grep -n 'validate_remote_runtime_contract "\$BRANCH"' <<<"$enrollment_body" | cut -d: -f1)"
+persist_line="$(grep -n '^  persist_cloud_config$' <<<"$enrollment_body" | tail -n 1 | cut -d: -f1)"
+if [ -n "$override_line" ] && [ -n "$selected_ref_gate_line" ] && [ -n "$persist_line" ] \
+  && [ "$override_line" -lt "$selected_ref_gate_line" ] && [ "$selected_ref_gate_line" -lt "$persist_line" ]; then
+  check 0 "enrollment-selected runtime ref is validated before bootstrap persistence"
+else
+  check 1 "enrollment-selected runtime ref is validated before bootstrap persistence"
+fi
+
+npm_stub_dir="$ROOT/npm-stub"
+npm_log="$ROOT/npm.log"
+cleanup_home="$ROOT/cleanup-home"
+mkdir -p "$npm_stub_dir" "$cleanup_home"
+cat >"$npm_stub_dir/npm" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >>"$NPM_LOG"
+EOF
+chmod +x "$npm_stub_dir/npm"
+
+HOME="$cleanup_home" \
+  PATH="$npm_stub_dir:$PATH" \
+  NPM_LOG="$npm_log" \
+  ZOLVEN_SERVICE_MANAGER=manual \
+  bash "$CLEANUP" -y \
+    --keep-repo \
+    --keep-data-dir \
+    --keep-watch-dir \
+    --keep-intelligence-workspace \
+    --keep-cloud-registration \
+    --purge-intelligence-cli \
+    >/dev/null
+
+check_equal "$(sed -n '1p' "$npm_log")" \
+  "uninstall -g --prefix $cleanup_home/.local $INTELLIGENCE_PACKAGE" \
+  "cleanup removes $INTELLIGENCE_PACKAGE from the user-local npm prefix"
+check_equal "$(sed -n '2p' "$npm_log")" \
+  "uninstall -g $INTELLIGENCE_PACKAGE" \
+  "cleanup removes $INTELLIGENCE_PACKAGE from the global npm prefix"
+check_equal "$(wc -l <"$npm_log" | tr -d ' ')" "2" \
+  "cleanup invokes no additional npm package removals"
+
 contract_functions="$ROOT/runtime-contract-functions.sh"
 awk '
   /^runtime_contract_has\(\) \{/ { capture=1 }
@@ -155,7 +252,7 @@ mkdir -p "$docs_only_repo/bin"
 git -C "$docs_only_repo" init -q
 : >"$docs_only_repo/bin/zolven"
 chmod +x "$docs_only_repo/bin/zolven"
-printf '%s\n' "0" >"$docs_only_repo/.zolven-install-contract"
+printf '%s\n' "1" >"$docs_only_repo/.zolven-install-contract"
 printf '%s\n' "${REQUIRED_IDENTIFIERS[@]}" >"$docs_only_repo/README.md"
 git -C "$docs_only_repo" add .zolven-install-contract bin/zolven README.md
 export REPO_DIR="$docs_only_repo"

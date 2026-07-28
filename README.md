@@ -88,6 +88,13 @@ contract version and exposes the required Zolven identifiers.
 `claim_url` from cloud enrollment is printed once and is not persisted;
 cloud-bootstrap files are written with owner-only permissions.
 
+The Intelligence distribution contract is owned by
+[`Zolven/zolven-intelligence`](https://github.com/Zolven/zolven-intelligence):
+the npm package is `@zolven/intelligence`, its product binary is
+`zolven-intelligence`, and its release asset is `zolven-intelligence.tgz`.
+This installer gates on the package identity but does not download the release
+asset.
+
 ## Cleanup
 
 Preview cleanup first:
