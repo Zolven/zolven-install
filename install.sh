@@ -14,6 +14,10 @@ fi
 
 REPO_SLUG="Zolven/zolven"
 BRANCH="${ZOLVEN_REPO_BRANCH:-main}"
+USER_SET_BRANCH=0
+if [ -n "${ZOLVEN_REPO_BRANCH:-}" ]; then
+  USER_SET_BRANCH=1
+fi
 MODE="${ZOLVEN_INSTALL_MODE:-local}"
 DEV_MODE=0
 INSTALL_LAUNCHD=0
@@ -663,6 +667,11 @@ load_existing_install_state() {
   fi
 
   INSTALL_ID="${ZOLVEN_INSTALL_ID:-$INSTALL_ID}"
+  if [ "$USER_SET_BRANCH" -eq 0 ] \
+    && [ "${ZOLVEN_INSTALL_MODE:-$MODE}" = "$MODE" ] \
+    && [ -n "${ZOLVEN_REPO_REF:-}" ]; then
+    BRANCH="$ZOLVEN_REPO_REF"
+  fi
   if [ -z "$RAW_OPENCLAW_PARENT_DIR" ]; then
     OPENCLAW_PARENT_DIR="${OPENCLAW_WORKSPACE_PARENT_DIR:-$OPENCLAW_PARENT_DIR}"
   fi
@@ -1351,6 +1360,7 @@ while [ "$#" -gt 0 ]; do
     --branch)
       shift
       BRANCH="${1:-}"
+      USER_SET_BRANCH=1
       ;;
     --dev)
       DEV_MODE=1
