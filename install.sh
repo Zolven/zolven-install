@@ -50,11 +50,16 @@ RAW_OPENCLAW_WORKSPACE_DIR="${ZOLVEN_OPENCLAW_WORKSPACE_DIR:-}"
 OPENCLAW_PARENT_DIR=""
 OPENCLAW_WORKSPACE_DIR=""
 
+RAW_INSTALL_STATE_FILE="${ZOLVEN_INSTALL_STATE_FILE:-}"
+RAW_CLOUD_ENV_FILE="${ZOLVEN_CLOUD_ENV_FILE:-}"
+RAW_TUNNEL_ENV_FILE="${ZOLVEN_CLOUD_TUNNEL_ENV_FILE:-}"
 INSTALL_STATE_FILE=""
 CLOUD_ENV_FILE=""
 TUNNEL_ENV_FILE=""
 INSTALL_STATUS="not_started"
 INSTALL_ID=""
+EXISTING_INSTALL_DETECTED=0
+EXISTING_INSTALL_AT=""
 
 CLOUD_SERVICE_USER="${ZOLVEN_CLOUD_SERVICE_USER:-zolven}"
 CLOUD_API_BASE_URL="${ZOLVEN_CLOUD_API_BASE_URL:-}"
@@ -581,9 +586,9 @@ resolve_mode_defaults() {
   WATCH_DIR="${RAW_WATCH_DIR:-$(default_watch_dir)}"
   OPENCLAW_PARENT_DIR="${RAW_OPENCLAW_PARENT_DIR:-$(default_openclaw_parent_dir)}"
   OPENCLAW_WORKSPACE_DIR="${RAW_OPENCLAW_WORKSPACE_DIR:-$OPENCLAW_PARENT_DIR/zolven}"
-  INSTALL_STATE_FILE="${ZOLVEN_INSTALL_STATE_FILE:-$DATA_DIR/install/install-state.env}"
-  CLOUD_ENV_FILE="${ZOLVEN_CLOUD_ENV_FILE:-$DATA_DIR/config/cloud-bootstrap.env}"
-  TUNNEL_ENV_FILE="${ZOLVEN_CLOUD_TUNNEL_ENV_FILE:-$DATA_DIR/config/tunnel.env}"
+  INSTALL_STATE_FILE="${RAW_INSTALL_STATE_FILE:-$DATA_DIR/install/install-state.env}"
+  CLOUD_ENV_FILE="${RAW_CLOUD_ENV_FILE:-$DATA_DIR/config/cloud-bootstrap.env}"
+  TUNNEL_ENV_FILE="${RAW_TUNNEL_ENV_FILE:-$DATA_DIR/config/tunnel.env}"
 
   if [ -z "$CLOUD_API_BASE_URL" ] && [ -n "$CLOUD_ENROLLMENT_URL" ]; then
     CLOUD_API_BASE_URL="$(derive_cloud_api_base_url_from_enrollment_url)"
@@ -666,6 +671,9 @@ load_existing_install_state() {
     return 0
   fi
 
+  EXISTING_INSTALL_DETECTED=1
+  EXISTING_INSTALL_AT="${ZOLVEN_INSTALLED_AT_UTC:-}"
+
   INSTALL_ID="${ZOLVEN_INSTALL_ID:-$INSTALL_ID}"
   if [ "$USER_SET_BRANCH" -eq 0 ] \
     && [ "${ZOLVEN_INSTALL_MODE:-$MODE}" = "$MODE" ] \
@@ -681,6 +689,30 @@ load_existing_install_state() {
   if [ "$MODE" = "cloud" ]; then
     CLOUD_TENANT_SLUG="${ZOLVEN_TENANT_SLUG:-$CLOUD_TENANT_SLUG}"
     CLOUD_RUNTIME_ID="${ZOLVEN_RUNTIME_ID:-$CLOUD_RUNTIME_ID}"
+  fi
+
+  # Adopt the recorded layout so a bare rerun converges on the existing
+  # install instead of cloning a second runtime at this mode's defaults.
+  # Environment overrides captured in RAW_* before sourcing still win, and a
+  # mode switch keeps the new mode's own defaults instead of inheriting the
+  # other mode's layout.
+  if [ "${ZOLVEN_INSTALL_MODE:-$MODE}" = "$MODE" ]; then
+    if [ -z "$RAW_REPO_DIR" ]; then
+      REPO_DIR="${ZOLVEN_REPO_DIR:-$REPO_DIR}"
+    fi
+    if [ -z "$RAW_DATA_DIR" ]; then
+      DATA_DIR="${ZOLVEN_DATA_DIR:-$DATA_DIR}"
+    fi
+    if [ -z "$RAW_WATCH_DIR" ]; then
+      WATCH_DIR="${ZOLVEN_WATCH_DIR:-$WATCH_DIR}"
+    fi
+    if [ -z "$RAW_CLI_LAUNCHER_PATH" ]; then
+      CLI_LAUNCHER_PATH="${ZOLVEN_CLI_LAUNCHER:-$CLI_LAUNCHER_PATH}"
+    fi
+    # Re-derive the DATA_DIR-relative files against the adopted layout.
+    INSTALL_STATE_FILE="${RAW_INSTALL_STATE_FILE:-$DATA_DIR/install/install-state.env}"
+    CLOUD_ENV_FILE="${RAW_CLOUD_ENV_FILE:-$DATA_DIR/config/cloud-bootstrap.env}"
+    TUNNEL_ENV_FILE="${RAW_TUNNEL_ENV_FILE:-$DATA_DIR/config/tunnel.env}"
   fi
 }
 
@@ -827,6 +859,7 @@ print_summary() {
 installer_version=$INSTALLER_VERSION
 runtime_contract_version=$RUNTIME_CONTRACT_VERSION
 mode=$MODE
+existing_install=$EXISTING_INSTALL_DETECTED
 repo_dir=$REPO_DIR
 data_dir=$DATA_DIR
 watch_dir=$WATCH_DIR
@@ -1445,8 +1478,16 @@ fi
 banner
 warn_deprecated_flags
 
+if [ "$EXISTING_INSTALL_DETECTED" -eq 1 ]; then
+  note "Existing install detected (id $INSTALL_ID, installed ${EXISTING_INSTALL_AT:-unknown}) — updating in place at $REPO_DIR"
+fi
+
 if [ "$AUTO_FRESH_DB" -eq 1 ]; then
-  note "Fresh install detected — Zolven will create a local database at $DEFAULT_DB_PATH"
+  if [ "$EXISTING_INSTALL_DETECTED" -eq 1 ]; then
+    note "No local database found — Zolven will create one at $DEFAULT_DB_PATH"
+  else
+    note "Fresh install detected — Zolven will create a local database at $DEFAULT_DB_PATH"
+  fi
 fi
 
 enforce_runtime_host_constraints
