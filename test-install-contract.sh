@@ -79,6 +79,45 @@ check_equal "$(summary_value "$cloud_summary" openclaw_workspace_dir)" "/var/lib
 check_equal "$(summary_value "$cloud_summary" cloud_service_user)" "zolven" "cloud service user is Zolven-owned"
 check_equal "$(summary_value "$cloud_summary" service_units)" "zolven-api.service zolven-dashboard.service zolven-worker.service zolven-worker.timer zolven-proxy.service zolven-tunnel.service" "cloud service units use the Zolven namespace"
 
+state_file="$ROOT/install-state.env"
+printf '%s\n' \
+  'ZOLVEN_INSTALL_MODE=cloud' \
+  'ZOLVEN_REPO_REF=release-zolven' \
+  >"$state_file"
+
+reused_cloud_summary="$(
+  HOME="$home" \
+    ZOLVEN_INSTALL_STATE_FILE="$state_file" \
+    bash "$INSTALLER" --mode cloud --enrollment-token placeholder --summary
+)"
+check_equal "$(summary_value "$reused_cloud_summary" branch)" "release-zolven" \
+  "cloud rerun restores the runtime ref recorded in install state"
+
+env_override_summary="$(
+  HOME="$home" \
+    ZOLVEN_INSTALL_STATE_FILE="$state_file" \
+    ZOLVEN_REPO_BRANCH="env-override" \
+    bash "$INSTALLER" --mode cloud --enrollment-token placeholder --summary
+)"
+check_equal "$(summary_value "$env_override_summary" branch)" "env-override" \
+  "explicit branch environment overrides the recorded runtime ref"
+
+cli_override_summary="$(
+  HOME="$home" \
+    ZOLVEN_INSTALL_STATE_FILE="$state_file" \
+    bash "$INSTALLER" --mode cloud --enrollment-token placeholder --branch "cli-override" --summary
+)"
+check_equal "$(summary_value "$cli_override_summary" branch)" "cli-override" \
+  "explicit branch argument overrides the recorded runtime ref"
+
+mode_switch_summary="$(
+  HOME="$home" \
+    ZOLVEN_INSTALL_STATE_FILE="$state_file" \
+    bash "$INSTALLER" --summary
+)"
+check_equal "$(summary_value "$mode_switch_summary" branch)" "main" \
+  "switching install mode does not inherit the previous mode runtime ref"
+
 if grep -Fq "run_quiet \"repository clone\" gh repo clone \"\$REPO_SLUG\"" "$INSTALLER"; then
   check 0 "runtime cloning is delegated to GitHub CLI"
 else
