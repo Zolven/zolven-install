@@ -118,6 +118,70 @@ mode_switch_summary="$(
 check_equal "$(summary_value "$mode_switch_summary" branch)" "main" \
   "switching install mode does not inherit the previous mode runtime ref"
 
+adopt_home="$ROOT/adopt-home"
+mkdir -p "$adopt_home"
+adopt_state_file="$ROOT/adopt-install-state.env"
+adopt_repo_dir="$ROOT/adopted/opt/zolven"
+adopt_data_dir="$ROOT/adopted/share/zolven"
+adopt_watch_dir="$ROOT/adopted/watch"
+adopt_cli_launcher="$ROOT/adopted/bin/zolven"
+printf '%s\n' \
+  'ZOLVEN_INSTALL_MODE=local' \
+  "ZOLVEN_REPO_DIR=$adopt_repo_dir" \
+  "ZOLVEN_DATA_DIR=$adopt_data_dir" \
+  "ZOLVEN_WATCH_DIR=$adopt_watch_dir" \
+  "ZOLVEN_CLI_LAUNCHER=$adopt_cli_launcher" \
+  >"$adopt_state_file"
+
+adopted_summary="$(
+  HOME="$adopt_home" \
+    ZOLVEN_INSTALL_STATE_FILE="$adopt_state_file" \
+    bash "$INSTALLER" --summary
+)"
+check_equal "$(summary_value "$adopted_summary" existing_install)" "1" \
+  "rerun reports the existing install recorded in install state"
+check_equal "$(summary_value "$adopted_summary" repo_dir)" "$adopt_repo_dir" \
+  "rerun adopts the repository path recorded in install state"
+check_equal "$(summary_value "$adopted_summary" data_dir)" "$adopt_data_dir" \
+  "rerun adopts the data path recorded in install state"
+check_equal "$(summary_value "$adopted_summary" watch_dir)" "$adopt_watch_dir" \
+  "rerun adopts the watch path recorded in install state"
+check_equal "$(summary_value "$adopted_summary" cli_launcher)" "$adopt_cli_launcher" \
+  "rerun adopts the CLI launcher recorded in install state"
+check_equal "$(summary_value "$adopted_summary" cloud_env_file)" "$adopt_data_dir/config/cloud-bootstrap.env" \
+  "rerun re-derives data-relative files against the adopted data path"
+
+path_override_summary="$(
+  HOME="$adopt_home" \
+    ZOLVEN_INSTALL_STATE_FILE="$adopt_state_file" \
+    ZOLVEN_REPO_DIR="$ROOT/override/zolven" \
+    bash "$INSTALLER" --summary
+)"
+check_equal "$(summary_value "$path_override_summary" repo_dir)" "$ROOT/override/zolven" \
+  "explicit repository environment overrides the recorded install path"
+check_equal "$(summary_value "$path_override_summary" data_dir)" "$adopt_data_dir" \
+  "overriding one path still adopts the remaining recorded layout"
+
+path_mode_switch_summary="$(
+  HOME="$adopt_home" \
+    ZOLVEN_INSTALL_STATE_FILE="$adopt_state_file" \
+    bash "$INSTALLER" --mode cloud --enrollment-token placeholder --summary
+)"
+check_equal "$(summary_value "$path_mode_switch_summary" repo_dir)" "/opt/zolven" \
+  "switching install mode keeps the new mode default repository path"
+check_equal "$(summary_value "$path_mode_switch_summary" data_dir)" "/var/lib/zolven" \
+  "switching install mode keeps the new mode default data path"
+
+fresh_summary="$(
+  HOME="$adopt_home" \
+    ZOLVEN_INSTALL_STATE_FILE="$ROOT/absent-install-state.env" \
+    bash "$INSTALLER" --summary
+)"
+check_equal "$(summary_value "$fresh_summary" existing_install)" "0" \
+  "fresh run reports no existing install"
+check_equal "$(summary_value "$fresh_summary" repo_dir)" "$adopt_home/.local/opt/zolven" \
+  "fresh run keeps the mode default repository path"
+
 if grep -Fq "run_quiet \"repository clone\" gh repo clone \"\$REPO_SLUG\"" "$INSTALLER"; then
   check 0 "runtime cloning is delegated to GitHub CLI"
 else
