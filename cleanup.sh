@@ -9,8 +9,11 @@ trap '[ -t 1 ] && printf "\n"' EXIT
 # This script is STANDALONE — it does not depend on any other file in the repo,
 # so it keeps working even as it deletes the Zolven repo checkout itself.
 #
-# Defaults remain narrow: only Zolven-owned state is removed. OpenClaw and
-# shared tooling (Node, pnpm, nvm, gh) are always preserved.
+# Defaults remain narrow: only Zolven-owned state is removed. The OpenClaw home
+# is left alone by default because a developer machine may run OpenClaw for
+# something other than Zolven; --purge-all opts into removing it, which is what
+# you want when decommissioning a server that only ever ran Zolven. Shared
+# tooling (Node, pnpm, nvm, gh) is always preserved.
 
 case "$(uname -s)" in
   Darwin) OS_KIND="macos" ;;
@@ -55,6 +58,7 @@ CLOUD_ENV_FILE=""
 HIMALAYA_CONFIG_FILE=""
 OPENCLAW_PARENT_DIR=""
 OPENCLAW_WORKSPACE_DIR=""
+OPENCLAW_HOME_DIR=""
 SERVICE_MANAGER=""
 SERVICE_UNITS_VALUE=""
 LAUNCHD_LABELS_VALUE=""
@@ -147,6 +151,7 @@ KEEP_WATCH_DIR=0
 KEEP_OPENCLAW_WORKSPACE=0
 KEEP_CLOUD_REGISTRATION=0
 PURGE_INTELLIGENCE_CLI=0
+PURGE_OPENCLAW_HOME=0
 
 usage() {
   cat <<EOF
@@ -169,9 +174,14 @@ By default the script removes only Zolven-owned state:
   • Zolven Intelligence workspace
   • Zolven-managed Himalaya mail accounts (~/.config/himalaya/config.toml)
 
-OpenClaw, unrelated OpenClaw workspaces, and shared Node/pnpm/nvm/gh tooling are
-always preserved. The Zolven Intelligence CLI is preserved unless explicitly
-selected for removal.
+Shared Node/pnpm/nvm/gh tooling is always preserved. The OpenClaw home
+(~/.openclaw), any unrelated OpenClaw workspace inside it, and the Zolven
+Intelligence CLI are preserved unless explicitly selected for removal.
+
+Use --purge-all to leave nothing behind on a machine that only ever ran Zolven.
+It also removes ~/.openclaw, including OpenClaw's identity, secrets, and any
+workspace belonging to another product — do not use it on a machine where you
+run OpenClaw for something else.
 
 Options:
   --dry-run                      Show what would be removed, do nothing.
@@ -182,6 +192,8 @@ Options:
   --keep-intelligence-workspace  Don't remove the Zolven Intelligence workspace.
   --keep-cloud-registration      Cloud mode only: skip best-effort runtime decommission.
   --purge-intelligence-cli       Also remove the Zolven Intelligence CLI npm package.
+  --purge-openclaw-home          Also remove the OpenClaw home (~/.openclaw).
+  --purge-all                    Shortcut: --purge-intelligence-cli --purge-openclaw-home
   -h, --help                     Show this help.
 
 Environment:
@@ -208,6 +220,8 @@ while [ "$#" -gt 0 ]; do
     --keep-intelligence-workspace|--keep-openclaw-workspace) KEEP_OPENCLAW_WORKSPACE=1 ;;
     --keep-cloud-registration) KEEP_CLOUD_REGISTRATION=1 ;;
     --purge-intelligence-cli)  PURGE_INTELLIGENCE_CLI=1 ;;
+    --purge-openclaw-home)     PURGE_OPENCLAW_HOME=1 ;;
+    --purge-all)               PURGE_INTELLIGENCE_CLI=1; PURGE_OPENCLAW_HOME=1 ;;
     -h|--help)                 usage; exit 0 ;;
     *)
       printf '%sERROR:%s Unknown argument: %s\n' "$TTY_RED" "$TTY_RESET" "$1" >&2
@@ -256,6 +270,29 @@ path_is_zolven_removal_target() {
   esac
   case "$target" in
     */zolven|*/Zolven|*/zolven/.env.local|*/Zolven/.env.local)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+path_is_openclaw_home_target() {
+  # The OpenClaw home is not Zolven-named, so it can never satisfy
+  # path_is_zolven_removal_target. Gate it on its own literal suffix instead,
+  # with the same absolute-path and traversal rules as the Zolven predicates.
+  local target="${1:-}"
+
+  case "$target" in
+    /*) ;;
+    *) return 1 ;;
+  esac
+  case "/$target/" in
+    */../*|*/./*) return 1 ;;
+  esac
+  case "$target" in
+    */.openclaw)
       return 0
       ;;
     *)
@@ -423,6 +460,13 @@ resolve_defaults() {
     OPENCLAW_PARENT_DIR="${INPUT_OPENCLAW_PARENT_DIR:-${OPENCLAW_WORKSPACE_PARENT_DIR:-$HOME/.openclaw/workspace}}"
   fi
   OPENCLAW_WORKSPACE_DIR="${INPUT_OPENCLAW_WORKSPACE_DIR:-${ZOLVEN_OPENCLAW_WORKSPACE_DIR:-$OPENCLAW_PARENT_DIR/zolven}}"
+  # Derive the home from the resolved workspace parent rather than assuming
+  # $HOME/.openclaw, so overrides stay authoritative. Cloud installs park the
+  # workspace under the data dir, so there is no separate home to remove there.
+  case "$OPENCLAW_PARENT_DIR" in
+    */.openclaw/workspace) OPENCLAW_HOME_DIR="${OPENCLAW_PARENT_DIR%/workspace}" ;;
+    *)                     OPENCLAW_HOME_DIR="" ;;
+  esac
   CLOUD_API_BASE_URL="${ZOLVEN_CLOUD_API_BASE_URL:-$CLOUD_API_BASE_URL}"
   CLOUD_DECOMMISSION_URL="${INPUT_CLOUD_DECOMMISSION_URL:-${ZOLVEN_CLOUD_DECOMMISSION_URL:-$CLOUD_DECOMMISSION_URL}}"
   CLOUD_TENANT_SLUG="${ZOLVEN_TENANT_SLUG:-$CLOUD_TENANT_SLUG}"
@@ -475,7 +519,8 @@ menu_can_prompt() {
      || [ "$KEEP_WATCH_DIR" -eq 1 ] \
      || [ "$KEEP_OPENCLAW_WORKSPACE" -eq 1 ] \
      || [ "$KEEP_CLOUD_REGISTRATION" -eq 1 ] \
-     || [ "$PURGE_INTELLIGENCE_CLI" -eq 1 ]; then
+     || [ "$PURGE_INTELLIGENCE_CLI" -eq 1 ] \
+     || [ "$PURGE_OPENCLAW_HOME" -eq 1 ]; then
     return 1
   fi
   [ -t 0 ] && [ -r /dev/tty ] && return 0
@@ -506,6 +551,7 @@ menu_apply_preset() {
   KEEP_OPENCLAW_WORKSPACE=0
   KEEP_CLOUD_REGISTRATION=0
   PURGE_INTELLIGENCE_CLI=0
+  PURGE_OPENCLAW_HOME=0
 
   case "$1" in
     default) ;;
@@ -519,6 +565,7 @@ menu_apply_preset() {
       ;;
     product_purge)
       PURGE_INTELLIGENCE_CLI=1
+      PURGE_OPENCLAW_HOME=1
       ;;
     dry_run)
       DRY_RUN=1
@@ -539,6 +586,7 @@ menu_customize() {
     menu_row 5 "$KEEP_OPENCLAW_WORKSPACE"   "keep-intelligence-workspace"   "Don't remove the Zolven Intelligence workspace."
     menu_row 6 "$KEEP_CLOUD_REGISTRATION"   "keep-cloud-registration"       "Cloud only: skip runtime decommission."
     menu_row 7 "$PURGE_INTELLIGENCE_CLI"    "purge-intelligence-cli"        "Also remove the Zolven Intelligence CLI npm package."
+    menu_row 8 "$PURGE_OPENCLAW_HOME"       "purge-openclaw-home"           "Also remove ~/.openclaw (identity, secrets, every workspace)."
     printf '\n'
     printf '> ' > /dev/tty
     read -r reply < /dev/tty || reply=""
@@ -552,6 +600,7 @@ menu_customize() {
       5) KEEP_OPENCLAW_WORKSPACE=$((1 - KEEP_OPENCLAW_WORKSPACE)) ;;
       6) KEEP_CLOUD_REGISTRATION=$((1 - KEEP_CLOUD_REGISTRATION)) ;;
       7) PURGE_INTELLIGENCE_CLI=$((1 - PURGE_INTELLIGENCE_CLI)) ;;
+      8) PURGE_OPENCLAW_HOME=$((1 - PURGE_OPENCLAW_HOME)) ;;
       *) tty_note "Unknown option: $reply" ;;
     esac
   done
@@ -565,7 +614,7 @@ interactive_menu() {
     printf '  1) %-18s %b%s%b\n' "Default cleanup"   "$TTY_DIM" "Remove Zolven state; keep shared tooling. (recommended)" "$TTY_RESET"
     printf '  2) %-18s %b%s%b\n' "Keep user data"    "$TTY_DIM" "Preserve data dir, watch dir, and Zolven workspace." "$TTY_RESET"
     printf '  3) %-18s %b%s%b\n' "Keep the repo"     "$TTY_DIM" "Preserve the Zolven repo checkout." "$TTY_RESET"
-    printf '  4) %-18s %b%s%b\n' "Product purge"     "$TTY_DIM" "Default cleanup + Zolven Intelligence CLI." "$TTY_RESET"
+    printf '  4) %-18s %b%s%b\n' "Product purge"     "$TTY_DIM" "Default cleanup + Intelligence CLI + ~/.openclaw. Leaves nothing." "$TTY_RESET"
     printf '  5) %-18s %b%s%b\n' "Dry run"           "$TTY_DIM" "Preview only — no changes." "$TTY_RESET"
     printf '  6) %-18s %b%s%b\n' "Custom..."         "$TTY_DIM" "Toggle individual flags one by one." "$TTY_RESET"
     printf '  0) %-18s %b%s%b\n' "Abort"             "$TTY_DIM" "Quit without changes." "$TTY_RESET"
@@ -606,17 +655,11 @@ path_needs_sudo() {
   return 0
 }
 
-rm_path() {
+rm_path_vetted() {
+  # Perform the removal. Callers MUST have already run the target through an
+  # ownership predicate; this function deliberately has no policy of its own.
   local target="$1"
   local label="${2:-$target}"
-  if [ -z "$target" ] || [ "$target" = "/" ] || [ "$target" = "$HOME" ]; then
-    warn "Refusing to remove dangerous path: '$target' ($label)"
-    return 0
-  fi
-  if ! path_is_zolven_removal_target "$target"; then
-    warn "Refusing to remove path outside Zolven ownership: $target ($label)"
-    return 0
-  fi
   if [ ! -e "$target" ] && [ ! -L "$target" ]; then
     return 0
   fi
@@ -630,6 +673,20 @@ rm_path() {
     rm -rf -- "$target"
   fi
   ok "Removed $label ($target)"
+}
+
+rm_path() {
+  local target="$1"
+  local label="${2:-$target}"
+  if [ -z "$target" ] || [ "$target" = "/" ] || [ "$target" = "$HOME" ]; then
+    warn "Refusing to remove dangerous path: '$target' ($label)"
+    return 0
+  fi
+  if ! path_is_zolven_removal_target "$target"; then
+    warn "Refusing to remove path outside Zolven ownership: $target ($label)"
+    return 0
+  fi
+  rm_path_vetted "$target" "$label"
 }
 
 decommission_url() {
@@ -654,6 +711,9 @@ summarize() {
   tty_kv "Service manager" "$SERVICE_MANAGER"
   tty_kv "Service units"   "${SERVICE_UNITS_VALUE:-<none>}"
   tty_kv "Intelligence ws" "$(fmt_path "$OPENCLAW_WORKSPACE_DIR")" "$(fmt_presence "$OPENCLAW_WORKSPACE_DIR" dir)"
+  if [ "$PURGE_OPENCLAW_HOME" -eq 1 ] && [ -n "$OPENCLAW_HOME_DIR" ]; then
+    tty_kv "OpenClaw home" "$(fmt_path "$OPENCLAW_HOME_DIR")" "$(fmt_presence "$OPENCLAW_HOME_DIR" dir)"
+  fi
   tty_kv "Himalaya config" "$(fmt_path "$HIMALAYA_CONFIG_FILE")" "$(fmt_presence "$HIMALAYA_CONFIG_FILE" file)"
   if [ "$INSTALL_MODE" = "cloud" ]; then
     tty_kv "Cloud env"       "$(fmt_path "$CLOUD_ENV_FILE")"       "$(fmt_presence "$CLOUD_ENV_FILE" file)"
@@ -665,7 +725,7 @@ summarize() {
   printf '\n'
   tty_note "flags: dry_run=$DRY_RUN  yes=$YES"
   tty_note "       keep_repo=$KEEP_REPO  keep_data=$KEEP_DATA_DIR  keep_watch=$KEEP_WATCH_DIR  keep_intel=$KEEP_OPENCLAW_WORKSPACE  keep_cloud=$KEEP_CLOUD_REGISTRATION"
-  tty_note "       purge_intel=$PURGE_INTELLIGENCE_CLI"
+  tty_note "       purge_intel=$PURGE_INTELLIGENCE_CLI  purge_openclaw_home=$PURGE_OPENCLAW_HOME"
   printf '\n'
 }
 
@@ -1032,6 +1092,42 @@ stage_purge_intelligence_cli() {
   npm uninstall -g "@zolven/intelligence" >/dev/null 2>&1 || true
 }
 
+warn_if_openclaw_gateway_installed() {
+  # Removing the home is pointless if the gateway is still registered: it
+  # recreates ~/.openclaw on its next start. Removing OpenClaw's own service is
+  # outside this script's ownership boundary, so say so instead of guessing.
+  local unit
+  for unit in \
+    "$SYSTEMD_USER_UNIT_DIR/openclaw-gateway.service" \
+    "$SYSTEMD_SYSTEM_UNIT_DIR/openclaw-gateway.service" \
+    "$HOME"/Library/LaunchAgents/*openclaw*.plist
+  do
+    [ -e "$unit" ] || continue
+    warn "OpenClaw gateway service still installed ($unit) — it will recreate $OPENCLAW_HOME_DIR when it next starts. Remove it with OpenClaw's own tooling for a fully clean machine."
+    return 0
+  done
+}
+
+stage_remove_openclaw_home() {
+  [ "$PURGE_OPENCLAW_HOME" -eq 1 ] || return 0
+
+  if [ -z "$OPENCLAW_HOME_DIR" ]; then
+    say "No OpenClaw home for this install mode (workspace lives under the data dir)"
+    return 0
+  fi
+  if [ "$OPENCLAW_HOME_DIR" = "/" ] || [ "$OPENCLAW_HOME_DIR" = "$HOME" ]; then
+    warn "Refusing to remove dangerous path: '$OPENCLAW_HOME_DIR' (OpenClaw home)"
+    return 0
+  fi
+  if ! path_is_openclaw_home_target "$OPENCLAW_HOME_DIR"; then
+    warn "OpenClaw home path does not end in /.openclaw — skipping to avoid removing an unrelated directory: $OPENCLAW_HOME_DIR"
+    return 0
+  fi
+
+  warn_if_openclaw_gateway_installed
+  rm_path_vetted "$OPENCLAW_HOME_DIR" "OpenClaw home"
+}
+
 resolve_defaults
 interactive_menu
 summarize
@@ -1042,6 +1138,10 @@ fi
 
 if [ "$INSTALL_MODE" = "cloud" ] && [ "$KEEP_DATA_DIR" -eq 0 ]; then
   warn "Cloud cleanup removes VM-local onboarding state, secrets, and chat history stored on this runtime."
+fi
+
+if [ "$PURGE_OPENCLAW_HOME" -eq 1 ] && [ -n "$OPENCLAW_HOME_DIR" ]; then
+  warn "Purging $OPENCLAW_HOME_DIR removes OpenClaw's identity, secrets, and every workspace inside it — including any that do not belong to Zolven."
 fi
 
 if [ "$DRY_RUN" -eq 0 ]; then
@@ -1066,9 +1166,10 @@ stage_remove_watch_dir
 stage_remove_openclaw_workspace
 stage_remove_himalaya_accounts
 
-if [ "$PURGE_INTELLIGENCE_CLI" -eq 1 ]; then
+if [ "$PURGE_INTELLIGENCE_CLI" -eq 1 ] || [ "$PURGE_OPENCLAW_HOME" -eq 1 ]; then
   tty_header "Purging optional components"
   stage_purge_intelligence_cli
+  stage_remove_openclaw_home
 fi
 
 stage_remove_repo
