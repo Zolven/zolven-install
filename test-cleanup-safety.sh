@@ -73,9 +73,9 @@ check "$?" "dry-run resolves the local Zolven data path"
 grep -Fq "$dry_home/.openclaw/workspace/zolven" "$dry_output"
 check "$?" "dry-run resolves only the Zolven OpenClaw workspace"
 if grep -Fq "rm -rf $dry_home/.openclaw (OpenClaw home)" "$dry_output"; then
-  check 1 "dry-run never plans removal of the shared OpenClaw home"
+  check 1 "dry-run does not plan removal of the OpenClaw home by default"
 else
-  check 0 "dry-run never plans removal of the shared OpenClaw home"
+  check 0 "dry-run does not plan removal of the OpenClaw home by default"
 fi
 [ -f "$dry_home/.local/share/zolven/product-data" ]
 check "$?" "dry-run leaves Zolven data untouched"
@@ -94,13 +94,52 @@ check "$?" "cleanup removes the isolated Zolven data directory"
 [ ! -e "$actual_home/.openclaw/workspace/zolven" ]
 check "$?" "cleanup removes the isolated Zolven OpenClaw workspace"
 [ -f "$actual_home/.openclaw/workspace/unrelated/keep-me" ]
-check "$?" "cleanup preserves an unrelated OpenClaw workspace"
+check "$?" "cleanup preserves an unrelated OpenClaw workspace by default"
 [ -f "$actual_home/.openclaw/openclaw.json" ]
-check "$?" "cleanup preserves the shared OpenClaw configuration"
+check "$?" "cleanup preserves the shared OpenClaw configuration by default"
 [ -f "$actual_home/.config/systemd/user/openclaw-gateway.service" ]
 check "$?" "cleanup preserves the upstream OpenClaw gateway unit"
 [ -f "$actual_home/.openclaw/secrets/keep-me" ]
-check "$?" "cleanup preserves shared OpenClaw secrets"
+check "$?" "cleanup preserves shared OpenClaw secrets by default"
+
+# Opting in removes the whole OpenClaw home. This is the decommission path for a
+# machine that only ever ran Zolven, so the unrelated workspace and the shared
+# secrets seeded by make_product_tree are expected to go with it.
+purge_home="$ROOT/purge-home"
+purge_output="$ROOT/purge-run.out"
+make_product_tree "$purge_home"
+HOME="$purge_home" ZOLVEN_SERVICE_MANAGER=manual \
+  bash "$CLEANUP" -y --purge-openclaw-home >"$purge_output" 2>&1
+
+[ ! -e "$purge_home/.openclaw" ]
+check "$?" "--purge-openclaw-home removes the OpenClaw home"
+grep -Fq "OpenClaw gateway service still installed" "$purge_output"
+check "$?" "--purge-openclaw-home warns the gateway would recreate the home"
+
+purge_dry_home="$ROOT/purge-dry-home"
+purge_dry_output="$ROOT/purge-dry-run.out"
+make_product_tree "$purge_dry_home"
+HOME="$purge_dry_home" ZOLVEN_SERVICE_MANAGER=manual \
+  bash "$CLEANUP" --dry-run --purge-openclaw-home >"$purge_dry_output" 2>&1
+
+grep -Fq "rm -rf $purge_dry_home/.openclaw (OpenClaw home)" "$purge_dry_output"
+check "$?" "--purge-openclaw-home plans the OpenClaw home removal"
+[ -d "$purge_dry_home/.openclaw" ]
+check "$?" "dry-run with --purge-openclaw-home changes nothing on disk"
+
+# --purge-all is only exercised in dry-run: its npm stage would otherwise run
+# `npm uninstall -g` against the real global prefix, which a fake HOME cannot
+# sandbox. Dry-run still proves the shortcut sets both toggles.
+purge_all_home="$ROOT/purge-all-home"
+purge_all_output="$ROOT/purge-all-run.out"
+make_product_tree "$purge_all_home"
+HOME="$purge_all_home" ZOLVEN_SERVICE_MANAGER=manual \
+  bash "$CLEANUP" --dry-run --purge-all >"$purge_all_output" 2>&1
+
+grep -Fq "rm -rf $purge_all_home/.openclaw (OpenClaw home)" "$purge_all_output"
+check "$?" "--purge-all plans the OpenClaw home removal"
+grep -Fq "remove Zolven Intelligence CLI from the global npm prefix" "$purge_all_output"
+check "$?" "--purge-all plans the Intelligence CLI removal"
 
 unsafe_home="$ROOT/unsafe-home"
 unsafe_repo="$ROOT/unrelated-repo"
