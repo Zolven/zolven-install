@@ -1088,8 +1088,15 @@ stage_purge_intelligence_cli() {
     return 0
   fi
   say "Uninstalling Zolven Intelligence CLI"
-  npm uninstall -g --prefix "$HOME/.local" "@zolven/intelligence" >/dev/null 2>&1 || true
-  npm uninstall -g "@zolven/intelligence" >/dev/null 2>&1 || true
+  # The Intelligence fork restored its upstream npm package identity, so a box
+  # may carry `openclaw`, the older `@zolven/intelligence`, or — after an
+  # in-place upgrade — both. Uninstall every name; each removal stays
+  # best-effort so an absent package never fails cleanup.
+  local package
+  for package in openclaw "@zolven/intelligence"; do
+    npm uninstall -g --prefix "$HOME/.local" "$package" >/dev/null 2>&1 || true
+    npm uninstall -g "$package" >/dev/null 2>&1 || true
+  done
 }
 
 warn_if_openclaw_gateway_installed() {

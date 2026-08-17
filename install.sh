@@ -1350,13 +1350,30 @@ validate_runtime_contract() {
     zolven-worker.service \
     zolven-worker.timer \
     zolven-proxy.service \
-    zolven-tunnel.service \
-    @zolven/intelligence
+    zolven-tunnel.service
   do
     if ! runtime_contract_has "$identifier"; then
       missing="$missing $identifier"
     fi
   done
+
+  # This verifies that the cloned runtime still ships the Intelligence
+  # integration. It deliberately does NOT verify the npm package identity, and
+  # no identifier here could: the Intelligence fork renamed its published
+  # package (it restored the upstream name, dropping the earlier scoped one),
+  # and that break lives on the runtime-to-fork seam, which this gate never
+  # sees — it only greps the cloned runtime. That drift is caught in
+  # Zolven/zolven by a test against the fork's published package.json. Do not
+  # re-add a package-name literal here expecting it to protect against a repeat.
+  #
+  # `zolven-intelligence` is the durable marker: it is the product binary the
+  # fork declares and the release asset the runtime fetches, so it survives npm
+  # package renames on either side, and unlike a bare product word it is not
+  # satisfied by incidental substring matches. It sits outside the list above
+  # only so this reasoning has somewhere to live; it is required all the same.
+  if ! runtime_contract_has "zolven-intelligence"; then
+    missing="$missing zolven-intelligence"
+  fi
 
   if [ -n "$missing" ]; then
     fail "The checked-out runtime does not expose Zolven install contract v$RUNTIME_CONTRACT_VERSION (missing:$missing). Installation is blocked until Zolven/zolven ships matching CLI, path, environment, service, workspace, and Intelligence identifiers."
