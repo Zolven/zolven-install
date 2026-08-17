@@ -7,7 +7,16 @@ CLEANUP="$HERE/cleanup.sh"
 ROOT="$(mktemp -d "${TMPDIR:-/tmp}/installer-contract.XXXXXX")"
 PASS=0
 FAIL=0
-INTELLIGENCE_PACKAGE="@zolven/intelligence"
+# The gate requires the Intelligence integration, not a particular npm package
+# name: the fork renamed its published package, so only a marker that survives
+# renames on both sides is worth gating on.
+INTELLIGENCE_MARKER="zolven-intelligence"
+# Cleanup, by contrast, must clear every package name a machine may carry, in
+# this order.
+INTELLIGENCE_PACKAGES=(
+  openclaw
+  "@zolven/intelligence"
+)
 REQUIRED_IDENTIFIERS=(
   ZOLVEN_INSTALL_CONTRACT_VERSION
   ZOLVEN_REPO_DIR
@@ -21,7 +30,6 @@ REQUIRED_IDENTIFIERS=(
   zolven-worker.timer
   zolven-proxy.service
   zolven-tunnel.service
-  "$INTELLIGENCE_PACKAGE"
 )
 
 finish() {
@@ -226,10 +234,10 @@ for required_identifier in "${REQUIRED_IDENTIFIERS[@]}"; do
   fi
 done
 
-if grep -Fq "$INTELLIGENCE_PACKAGE" <<<"$validator_body"; then
-  check 0 "runtime contract targets the exact $INTELLIGENCE_PACKAGE package identity"
+if grep -Fq "$INTELLIGENCE_MARKER" <<<"$validator_body"; then
+  check 0 "runtime gate requires the $INTELLIGENCE_MARKER integration marker"
 else
-  check 1 "runtime contract targets the exact $INTELLIGENCE_PACKAGE package identity"
+  check 1 "runtime gate requires the $INTELLIGENCE_MARKER integration marker"
 fi
 
 remote_contract_function="$ROOT/remote-contract-function.sh"
@@ -312,13 +320,20 @@ HOME="$cleanup_home" \
     --purge-intelligence-cli \
     >/dev/null
 
-check_equal "$(sed -n '1p' "$npm_log")" \
-  "uninstall -g --prefix $cleanup_home/.local $INTELLIGENCE_PACKAGE" \
-  "cleanup removes $INTELLIGENCE_PACKAGE from the user-local npm prefix"
-check_equal "$(sed -n '2p' "$npm_log")" \
-  "uninstall -g $INTELLIGENCE_PACKAGE" \
-  "cleanup removes $INTELLIGENCE_PACKAGE from the global npm prefix"
-check_equal "$(wc -l <"$npm_log" | tr -d ' ')" "2" \
+# Cleanup must clear both package identities: a box upgraded across the fork's
+# rename carries the old name, the new name, or both.
+npm_line=0
+for intelligence_package in "${INTELLIGENCE_PACKAGES[@]}"; do
+  npm_line=$((npm_line + 1))
+  check_equal "$(sed -n "${npm_line}p" "$npm_log")" \
+    "uninstall -g --prefix $cleanup_home/.local $intelligence_package" \
+    "cleanup removes $intelligence_package from the user-local npm prefix"
+  npm_line=$((npm_line + 1))
+  check_equal "$(sed -n "${npm_line}p" "$npm_log")" \
+    "uninstall -g $intelligence_package" \
+    "cleanup removes $intelligence_package from the global npm prefix"
+done
+check_equal "$(wc -l <"$npm_log" | tr -d ' ')" "$npm_line" \
   "cleanup invokes no additional npm package removals"
 
 contract_functions="$ROOT/runtime-contract-functions.sh"
@@ -334,15 +349,25 @@ awk '
 . "$contract_functions"
 fail() { return 1; }
 
-compatible_repo="$ROOT/compatible-runtime"
-mkdir -p "$compatible_repo/bin" "$compatible_repo/scripts"
-git -C "$compatible_repo" init -q
-: >"$compatible_repo/bin/zolven"
-chmod +x "$compatible_repo/bin/zolven"
-printf '%s\n' "1" >"$compatible_repo/.zolven-install-contract"
-printf '%s\n' "${REQUIRED_IDENTIFIERS[@]}" >"$compatible_repo/scripts/install.sh"
-git -C "$compatible_repo" add .zolven-install-contract bin/zolven scripts/install.sh
+# Builds a runtime checkout that declares the given identifiers in one file, so
+# the gate can be exercised against real and documentation-only layouts.
+build_contract_repo() {
+  local dir="$1" declaration_file="$2"
+  shift 2
+  mkdir -p "$dir/bin" "$dir/$(dirname "$declaration_file")"
+  git -C "$dir" init -q
+  : >"$dir/bin/zolven"
+  chmod +x "$dir/bin/zolven"
+  printf '%s\n' "1" >"$dir/.zolven-install-contract"
+  printf '%s\n' "$@" >"$dir/$declaration_file"
+  git -C "$dir" add .zolven-install-contract bin/zolven "$declaration_file"
+}
+
 export RUNTIME_CONTRACT_VERSION=1
+
+compatible_repo="$ROOT/compatible-runtime"
+build_contract_repo "$compatible_repo" scripts/install.sh \
+  "${REQUIRED_IDENTIFIERS[@]}" "$INTELLIGENCE_MARKER"
 export REPO_DIR="$compatible_repo"
 if validate_runtime_contract; then
   check 0 "runtime gate accepts an implementation that exposes the complete contract"
@@ -350,14 +375,21 @@ else
   check 1 "runtime gate accepts an implementation that exposes the complete contract"
 fi
 
+# A runtime that carries no Intelligence integration at all is blocked, and no
+# npm package name substitutes for the marker.
+no_intelligence_repo="$ROOT/no-intelligence-runtime"
+build_contract_repo "$no_intelligence_repo" scripts/install.sh \
+  "${REQUIRED_IDENTIFIERS[@]}" "${INTELLIGENCE_PACKAGES[@]}"
+export REPO_DIR="$no_intelligence_repo"
+if validate_runtime_contract; then
+  check 1 "runtime gate rejects a runtime without the $INTELLIGENCE_MARKER integration"
+else
+  check 0 "runtime gate rejects a runtime without the $INTELLIGENCE_MARKER integration"
+fi
+
 docs_only_repo="$ROOT/docs-only-runtime"
-mkdir -p "$docs_only_repo/bin"
-git -C "$docs_only_repo" init -q
-: >"$docs_only_repo/bin/zolven"
-chmod +x "$docs_only_repo/bin/zolven"
-printf '%s\n' "1" >"$docs_only_repo/.zolven-install-contract"
-printf '%s\n' "${REQUIRED_IDENTIFIERS[@]}" >"$docs_only_repo/README.md"
-git -C "$docs_only_repo" add .zolven-install-contract bin/zolven README.md
+build_contract_repo "$docs_only_repo" README.md \
+  "${REQUIRED_IDENTIFIERS[@]}" "$INTELLIGENCE_MARKER"
 export REPO_DIR="$docs_only_repo"
 if validate_runtime_contract; then
   check 1 "runtime gate rejects identifiers that appear only in documentation"

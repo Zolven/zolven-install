@@ -90,10 +90,13 @@ cloud-bootstrap files are written with owner-only permissions.
 
 The Intelligence distribution contract is owned by
 [`Zolven/zolven-intelligence`](https://github.com/Zolven/zolven-intelligence):
-the npm package is `@zolven/intelligence`, its product binary is
-`zolven-intelligence`, and its release asset is `zolven-intelligence.tgz`.
-This installer gates on the package identity but does not download the release
-asset.
+the npm package is `openclaw` — the fork restored the upstream package identity
+in `v2026.7.1-zolven.5`, replacing the earlier `@zolven/intelligence` — it
+declares both the `zolven-intelligence` and `openclaw` binaries, and its release
+asset is `zolven-intelligence.tgz`. This installer gates on the package identity
+but does not download the release asset. The gate and cleanup accept either
+package name, so runtimes and machines on either side of the rename stay
+installable and fully removable.
 
 ## Cleanup
 
