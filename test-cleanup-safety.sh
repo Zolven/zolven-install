@@ -35,13 +35,19 @@ check() {
   fi
 }
 
+# The platform's default data dir; macOS keeps it under Application Support.
+case "$(uname -s)" in
+  Darwin) LOCAL_DATA_REL="Library/Application Support/Zolven" ;;
+  *) LOCAL_DATA_REL=".local/share/zolven" ;;
+esac
+
 make_product_tree() {
   local home="$1"
   local repo="$home/.local/opt/zolven"
 
   mkdir -p \
     "$repo/scripts" \
-    "$home/.local/share/zolven" \
+    "$home/$LOCAL_DATA_REL" \
     "$home/.local/bin" \
     "$home/Documents/Zolven" \
     "$home/.openclaw/workspace/zolven" \
@@ -52,7 +58,7 @@ make_product_tree() {
   git -C "$repo" init -q
   git -C "$repo" remote add origin https://github.com/Zolven/zolven.git
   : >"$repo/scripts/install.sh"
-  : >"$home/.local/share/zolven/product-data"
+  : >"$home/$LOCAL_DATA_REL/product-data"
   : >"$home/.local/bin/zolven"
   : >"$home/Documents/Zolven/watched-document"
   : >"$home/.openclaw/workspace/zolven/product-workspace-data"
@@ -68,7 +74,8 @@ dry_output="$ROOT/dry-run.out"
 HOME="$dry_home" ZOLVEN_SERVICE_MANAGER=manual \
   bash "$CLEANUP" --dry-run >"$dry_output" 2>&1
 
-grep -Fq "$dry_home/.local/share/zolven" "$dry_output"
+# Plan lines print paths shell-quoted; macOS's default contains a space.
+grep -Fq "rm -rf $(printf '%q' "$dry_home/$LOCAL_DATA_REL") (data dir)" "$dry_output"
 check "$?" "dry-run resolves the local Zolven data path"
 grep -Fq "$dry_home/.openclaw/workspace/zolven" "$dry_output"
 check "$?" "dry-run resolves only the Zolven OpenClaw workspace"
@@ -77,7 +84,7 @@ if grep -Fq "rm -rf $dry_home/.openclaw (OpenClaw home)" "$dry_output"; then
 else
   check 0 "dry-run does not plan removal of the OpenClaw home by default"
 fi
-[ -f "$dry_home/.local/share/zolven/product-data" ]
+[ -f "$dry_home/$LOCAL_DATA_REL/product-data" ]
 check "$?" "dry-run leaves Zolven data untouched"
 [ -f "$dry_home/.openclaw/workspace/unrelated/keep-me" ]
 check "$?" "dry-run leaves unrelated OpenClaw workspaces untouched"
@@ -89,7 +96,7 @@ HOME="$actual_home" ZOLVEN_SERVICE_MANAGER=manual \
 
 [ ! -e "$actual_home/.local/opt/zolven" ]
 check "$?" "cleanup removes the isolated Zolven repository"
-[ ! -e "$actual_home/.local/share/zolven" ]
+[ ! -e "$actual_home/$LOCAL_DATA_REL" ]
 check "$?" "cleanup removes the isolated Zolven data directory"
 [ ! -e "$actual_home/.openclaw/workspace/zolven" ]
 check "$?" "cleanup removes the isolated Zolven OpenClaw workspace"

@@ -534,8 +534,85 @@ default_cloud_repo_dir() {
   printf '%s\n' "/opt/zolven"
 }
 
+# A data dir something was installed into. A bare directory is not one:
+# commands run against the wrong location may have created it.
+data_dir_has_install() {
+  [ -f "$1/config/zolven.env" ] \
+    || [ -f "$1/data/finance_ops.sqlite" ] \
+    || [ -f "$1/install/install-state.env" ]
+}
+
+# macOS uses ~/Library/Application Support/Zolven, where the Zolven runtime has
+# always looked for its data. This installer defaulted macOS to
+# ~/.local/share/zolven from its 2026-07-29 rebrand until the two repos were
+# realigned, which left every interactive `zolven` command looking at an empty
+# location. Installs made in that window stay where they are, since their
+# LaunchAgents, env file and Intelligence registration all point there: the
+# legacy location wins when it holds an install and the canonical one does not,
+# or when both do and it ranks higher: the database decides, and this
+# installer's state record breaks a tie. (The pre-fix CLI wrote stray env files
+# into Application Support next to legacy installs, and a pre-fix run of this
+# installer that aborted left only its state record next to an Application
+# Support install.)
+# This is a cross-repo contract. Zolven/zolven resolves the same rule in
+# scripts/lib/data-dir.sh, packages/cli/src/config.js and
+# packages/config/src/index.ts; cleanup.sh repeats it here, and
+# test-install-contract.sh pins it to the table the runtime's tests pin theirs to.
+# How strongly a data dir claims to be the install: its database outranks this
+# installer's state record, which outranks nothing.
+data_dir_rank() {
+  local dir="$1" rank=0
+  if [ -f "$dir/data/finance_ops.sqlite" ]; then
+    rank=$((rank + 2))
+  fi
+  if [ -f "$dir/install/install-state.env" ]; then
+    rank=$((rank + 1))
+  fi
+  printf '%s\n' "$rank"
+}
+
 default_local_data_dir() {
-  printf '%s\n' "$HOME/.local/share/zolven"
+  local canonical legacy
+  case "$(uname -s)" in
+    Darwin)
+      canonical="$HOME/Library/Application Support/Zolven"
+      legacy="$HOME/.local/share/zolven"
+      if data_dir_has_install "$legacy" \
+        && { ! data_dir_has_install "$canonical" \
+          || [ "$(data_dir_rank "$legacy")" -gt "$(data_dir_rank "$canonical")" ]; }; then
+        printf '%s\n' "$legacy"
+      else
+        printf '%s\n' "$canonical"
+      fi
+      ;;
+    *)
+      printf '%s\n' "$HOME/.local/share/zolven"
+      ;;
+  esac
+}
+
+describe_data_dir_install() {
+  local dir="$1" found=""
+  [ -f "$dir/install/install-state.env" ] && found="install state"
+  [ -f "$dir/data/finance_ops.sqlite" ] && found="${found:+$found, }database"
+  [ -f "$dir/config/zolven.env" ] && found="${found:+$found, }env file"
+  printf '%s\n' "$found"
+}
+
+# The rule above settles two installs on the state record, but acting on a
+# wrong pick here re-renders services and the env file against an empty
+# database, orphaning the real one. So with installs in both macOS locations
+# the installer does not choose: an explicit --data-dir (or ZOLVEN_DATA_DIR) or
+# ZOLVEN_INSTALL_STATE_FILE does.
+refuse_ambiguous_local_data_dir() {
+  local canonical legacy
+  [ "$MODE" = "local" ] || return 0
+  [ -z "$RAW_DATA_DIR" ] && [ -z "$RAW_INSTALL_STATE_FILE" ] || return 0
+  [ "$(uname -s)" = "Darwin" ] || return 0
+  canonical="$HOME/Library/Application Support/Zolven"
+  legacy="$HOME/.local/share/zolven"
+  data_dir_has_install "$canonical" && data_dir_has_install "$legacy" || return 0
+  fail "Found Zolven data in two places: $legacy ($(describe_data_dir_install "$legacy")) and $canonical ($(describe_data_dir_install "$canonical")). Re-run with --data-dir set to the one that holds your install (normally the one with the install state and database), and move the other aside once you have checked it."
 }
 
 default_cloud_data_dir() {
@@ -1477,6 +1554,7 @@ if [ "$MODE" = "cloud" ]; then
 fi
 
 resolve_mode_defaults
+refuse_ambiguous_local_data_dir
 validate_args
 load_existing_install_state
 generate_install_id

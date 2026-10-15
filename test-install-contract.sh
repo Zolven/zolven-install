@@ -7,6 +7,10 @@ CLEANUP="$HERE/cleanup.sh"
 ROOT="$(mktemp -d "${TMPDIR:-/tmp}/installer-contract.XXXXXX")"
 PASS=0
 FAIL=0
+# A host that exports its own layout (a hand-patched shell profile does) must
+# not leak it into the defaults under test.
+unset ZOLVEN_DATA_DIR ZOLVEN_INSTALL_STATE_FILE ZOLVEN_REPO_DIR ZOLVEN_WATCH_DIR \
+  ZOLVEN_CLI_LAUNCHER ZOLVEN_INSTALL_MODE ZOLVEN_REPO_BRANCH
 # The gate requires the Intelligence integration, not a particular npm package
 # name: the fork renamed its published package, so only a marker that survives
 # renames on both sides is worth gating on.
@@ -64,6 +68,68 @@ summary_value() {
   printf '%s\n' "$summary" | awk -F= -v key="$key" '$1 == key { sub(/^[^=]*=/, ""); print; exit }'
 }
 
+# The local data dir is a cross-repo contract: Zolven/zolven resolves it in
+# scripts/lib/data-dir.sh, packages/cli/src/config.js and
+# packages/config/src/index.ts, and pins all three to the same table in
+# packages/config/tests/data-dir-contract.test.ts. Keep these in step with it.
+CANONICAL_MACOS_DATA="Library/Application Support/Zolven"
+LEGACY_MACOS_DATA=".local/share/zolven"
+LINUX_DATA=".local/share/zolven"
+INSTALL_MARKERS=(
+  config/zolven.env
+  data/finance_ops.sqlite
+  install/install-state.env
+)
+case "$(uname -s)" in
+  Darwin) NATIVE_LOCAL_DATA="$CANONICAL_MACOS_DATA" ;;
+  *) NATIVE_LOCAL_DATA="$LINUX_DATA" ;;
+esac
+
+# Puts a `uname` first on PATH that answers `-s` with the given kernel name and
+# hands every other query to the real one, so both platforms run on any runner.
+REAL_UNAME="$(command -v uname)"
+uname_shim_dir() {
+  local kernel="$1" dir="$ROOT/uname-$1"
+  if [ ! -x "$dir/uname" ]; then
+    mkdir -p "$dir"
+    cat >"$dir/uname" <<EOF
+#!/usr/bin/env bash
+if [ "\${1:-}" = "-s" ]; then
+  printf '%s\\n' "$kernel"
+  exit 0
+fi
+exec "$REAL_UNAME" "\$@"
+EOF
+    chmod +x "$dir/uname"
+  fi
+  printf '%s\n' "$dir"
+}
+
+# Usage: data_dir_home NAME [RELATIVE_DIR:ENTRY ...]. An ENTRY ending in / is a
+# directory; anything else is an empty file.
+data_dir_home() {
+  local home="$ROOT/data-dir/$1" spec dir entry
+  shift
+  mkdir -p "$home"
+  for spec in "$@"; do
+    dir="${spec%%:*}"
+    entry="${spec#*:}"
+    mkdir -p "$home/$dir"
+    case "$entry" in
+      "") ;;
+      */) mkdir -p "$home/$dir/$entry" ;;
+      *) mkdir -p "$(dirname "$home/$dir/$entry")"; : >"$home/$dir/$entry" ;;
+    esac
+  done
+  printf '%s\n' "$home"
+}
+
+summary_as() {
+  local kernel="$1" home="$2"
+  shift 2
+  PATH="$(uname_shim_dir "$kernel"):$PATH" HOME="$home" bash "$INSTALLER" "$@" --summary
+}
+
 home="$ROOT/home"
 mkdir -p "$home"
 
@@ -73,7 +139,7 @@ cloud_summary="$(HOME="$home" bash "$INSTALLER" --mode cloud --enrollment-token 
 check_equal "$(summary_value "$local_summary" repo_slug)" "Zolven/zolven" "local contract targets Zolven/zolven"
 check_equal "$(summary_value "$local_summary" runtime_contract_version)" "1" "installer requires Zolven runtime contract version 1"
 check_equal "$(summary_value "$local_summary" repo_dir)" "$home/.local/opt/zolven" "local repository path matches the public contract"
-check_equal "$(summary_value "$local_summary" data_dir)" "$home/.local/share/zolven" "local data path matches the public contract"
+check_equal "$(summary_value "$local_summary" data_dir)" "$home/$NATIVE_LOCAL_DATA" "local data path matches the public contract"
 check_equal "$(summary_value "$local_summary" openclaw_workspace_dir)" "$home/.openclaw/workspace/zolven" "local OpenClaw workspace is product-scoped"
 case "$(summary_value "$local_summary" cli_launcher)" in
   "$home/.local/bin/zolven"|/usr/local/bin/zolven) check 0 "local CLI launcher matches an allowed contract path" ;;
@@ -189,6 +255,160 @@ check_equal "$(summary_value "$fresh_summary" existing_install)" "0" \
   "fresh run reports no existing install"
 check_equal "$(summary_value "$fresh_summary" repo_dir)" "$adopt_home/.local/opt/zolven" \
   "fresh run keeps the mode default repository path"
+
+# macOS keeps the canonical location, but installs this installer placed in
+# ~/.local/share/zolven are adopted where they are rather than orphaned.
+check_data_dir_as() {
+  local kernel="$1" expected="$2" description="$3" home
+  shift 3
+  home="$(data_dir_home "$kernel-$((PASS + FAIL))" "$@")"
+  check_equal "$(summary_value "$(summary_as "$kernel" "$home")" data_dir)" "$home/$expected" \
+    "$description"
+}
+
+if [ "$(PATH="$(uname_shim_dir Darwin):$PATH" uname -s)" = "Darwin" ] \
+  && [ "$(PATH="$(uname_shim_dir Linux):$PATH" uname -s)" = "Linux" ]; then
+  check 0 "uname shim impersonates the platform under test"
+else
+  check 1 "uname shim impersonates the platform under test"
+fi
+
+check_data_dir_as Darwin "$CANONICAL_MACOS_DATA" \
+  "macOS fresh install uses Application Support"
+for marker in "${INSTALL_MARKERS[@]}"; do
+  check_data_dir_as Darwin "$LEGACY_MACOS_DATA" \
+    "macOS adopts a ~/.local/share/zolven install recorded by $marker" \
+    "$LEGACY_MACOS_DATA:$marker"
+done
+check_data_dir_as Darwin "$CANONICAL_MACOS_DATA" \
+  "macOS ignores an empty ~/.local/share/zolven" \
+  "$LEGACY_MACOS_DATA:"
+check_data_dir_as Darwin "$LEGACY_MACOS_DATA" \
+  "macOS ignores an empty Application Support dir next to a legacy install" \
+  "$CANONICAL_MACOS_DATA:logs/" "$LEGACY_MACOS_DATA:config/zolven.env"
+check_data_dir_as Darwin "$CANONICAL_MACOS_DATA" \
+  "macOS keeps an Application Support install" \
+  "$CANONICAL_MACOS_DATA:config/zolven.env"
+
+# With an install in both places the rule itself ranks them (database first,
+# then the installer's own state record), as the runtime does; the installer
+# then refuses to act on it anyway (below), because its wrong guess is the
+# destructive one.
+data_dir_functions="$ROOT/data-dir-functions.sh"
+awk '
+  /^data_dir_has_install\(\) \{/ || /^data_dir_rank\(\) \{/ || /^default_local_data_dir\(\) \{/ { capture=1 }
+  capture { print }
+  capture && /^}/ { capture=0 }
+' "$INSTALLER" >"$data_dir_functions"
+check_default_rule_as_darwin() {
+  local expected="$1" description="$2" home
+  shift 2
+  home="$(data_dir_home "rule-$((PASS + FAIL))" "$@")"
+  check_equal \
+    "$(PATH="$(uname_shim_dir Darwin):$PATH" HOME="$home" bash -c '. "$1"; default_local_data_dir' _ "$data_dir_functions")" \
+    "$home/$expected" "$description"
+}
+check_default_rule_as_darwin "$LEGACY_MACOS_DATA" \
+  "macOS rule keeps a recorded legacy install over a stray Application Support env file" \
+  "$LEGACY_MACOS_DATA:install/install-state.env" "$LEGACY_MACOS_DATA:data/finance_ops.sqlite" \
+  "$CANONICAL_MACOS_DATA:config/zolven.env"
+check_default_rule_as_darwin "$LEGACY_MACOS_DATA" \
+  "macOS rule keeps an unrecorded legacy install over a stray Application Support env file" \
+  "$LEGACY_MACOS_DATA:config/zolven.env" "$LEGACY_MACOS_DATA:data/finance_ops.sqlite" \
+  "$CANONICAL_MACOS_DATA:config/zolven.env"
+check_default_rule_as_darwin "$CANONICAL_MACOS_DATA" \
+  "macOS rule keeps an Application Support install over an aborted legacy run's state record" \
+  "$CANONICAL_MACOS_DATA:config/zolven.env" "$CANONICAL_MACOS_DATA:data/finance_ops.sqlite" \
+  "$LEGACY_MACOS_DATA:install/install-state.env"
+check_default_rule_as_darwin "$LEGACY_MACOS_DATA" \
+  "macOS rule breaks a two-database tie on the install state" \
+  "$CANONICAL_MACOS_DATA:config/zolven.env" "$CANONICAL_MACOS_DATA:data/finance_ops.sqlite" \
+  "$LEGACY_MACOS_DATA:install/install-state.env" "$LEGACY_MACOS_DATA:data/finance_ops.sqlite"
+check_default_rule_as_darwin "$CANONICAL_MACOS_DATA" \
+  "macOS rule prefers Application Support when both carry install state" \
+  "$LEGACY_MACOS_DATA:install/install-state.env" "$CANONICAL_MACOS_DATA:install/install-state.env"
+check_default_rule_as_darwin "$CANONICAL_MACOS_DATA" \
+  "macOS rule prefers an Application Support database over a legacy env file" \
+  "$CANONICAL_MACOS_DATA:data/finance_ops.sqlite" "$LEGACY_MACOS_DATA:config/zolven.env"
+
+conflict_home="$(data_dir_home conflict \
+  "$LEGACY_MACOS_DATA:install/install-state.env" "$LEGACY_MACOS_DATA:data/finance_ops.sqlite" \
+  "$CANONICAL_MACOS_DATA:config/zolven.env")"
+conflict_status=0
+conflict_output="$(summary_as Darwin "$conflict_home" 2>&1)" || conflict_status=$?
+if [ "$conflict_status" -ne 0 ] \
+  && grep -Fq "$conflict_home/$LEGACY_MACOS_DATA (install state, database)" <<<"$conflict_output" \
+  && grep -Fq "$conflict_home/$CANONICAL_MACOS_DATA (env file)" <<<"$conflict_output" \
+  && grep -Fq -- "--data-dir" <<<"$conflict_output"; then
+  check 0 "macOS installer refuses to choose between two installs and names what each holds"
+else
+  check 1 "macOS installer refuses to choose between two installs and names what each holds"
+fi
+check_equal \
+  "$(summary_value "$(summary_as Darwin "$conflict_home" --data-dir "$conflict_home/$LEGACY_MACOS_DATA")" data_dir)" \
+  "$conflict_home/$LEGACY_MACOS_DATA" \
+  "an explicit --data-dir settles a two-install conflict"
+check_data_dir_as Linux "$LINUX_DATA" \
+  "Linux always uses ~/.local/share/zolven" \
+  "$CANONICAL_MACOS_DATA:config/zolven.env"
+
+# The migrated Mac mini: its install state lives under the legacy location and
+# records that layout, so a bare rerun converges on it instead of setting up a
+# second, empty install under Application Support.
+legacy_home="$(data_dir_home legacy-state)"
+legacy_data="$legacy_home/$LEGACY_MACOS_DATA"
+mkdir -p "$legacy_data/install"
+printf '%s\n' \
+  'ZOLVEN_INSTALL_MODE=local' \
+  "ZOLVEN_REPO_DIR=$legacy_home/.local/opt/zolven" \
+  "ZOLVEN_DATA_DIR=$legacy_data" \
+  "ZOLVEN_WATCH_DIR=$legacy_home/Documents/Kept" \
+  >"$legacy_data/install/install-state.env"
+legacy_summary="$(summary_as Darwin "$legacy_home")"
+check_equal "$(summary_value "$legacy_summary" existing_install)" "1" \
+  "macOS rerun finds the install state of a ~/.local/share/zolven install"
+check_equal "$(summary_value "$legacy_summary" data_dir)" "$legacy_data" \
+  "macOS rerun keeps a ~/.local/share/zolven install in place"
+check_equal "$(summary_value "$legacy_summary" watch_dir)" "$legacy_home/Documents/Kept" \
+  "macOS rerun adopts the rest of the legacy install's recorded layout"
+
+cleanup_plan_as() {
+  local kernel="$1" home="$2"
+  shift 2
+  PATH="$(uname_shim_dir "$kernel"):$PATH" HOME="$home" ZOLVEN_SERVICE_MANAGER=manual \
+    bash "$CLEANUP" --dry-run "$@" 2>&1
+}
+if grep -Fq "rm -rf $(printf '%q' "$legacy_data") (data dir)" <<<"$(cleanup_plan_as Darwin "$legacy_home")"; then
+  check 0 "macOS cleanup finds a ~/.local/share/zolven install"
+else
+  check 1 "macOS cleanup finds a ~/.local/share/zolven install"
+fi
+# A cleanup that reports success must not leave an install behind in the other
+# default location, whichever one the rule picked.
+both_cleanup_home="$(data_dir_home both-cleanup \
+  "$LEGACY_MACOS_DATA:install/install-state.env" "$LEGACY_MACOS_DATA:data/finance_ops.sqlite" \
+  "$CANONICAL_MACOS_DATA:config/zolven.env")"
+both_cleanup_plan="$(cleanup_plan_as Darwin "$both_cleanup_home")"
+for location in "$LEGACY_MACOS_DATA" "$CANONICAL_MACOS_DATA"; do
+  if grep -Fq "rm -rf $(printf '%q' "$both_cleanup_home/$location")" <<<"$both_cleanup_plan"; then
+    check 0 "macOS cleanup plans removal of $location when both locations exist"
+  else
+    check 1 "macOS cleanup plans removal of $location when both locations exist"
+  fi
+done
+kept_cleanup_plan="$(cleanup_plan_as Darwin "$both_cleanup_home" --keep-data-dir)"
+if grep -Eq '\((other default )?data dir\)$' <<<"$kept_cleanup_plan"; then
+  check 1 "--keep-data-dir keeps both macOS data locations"
+else
+  check 0 "--keep-data-dir keeps both macOS data locations"
+fi
+
+canonical_cleanup_home="$(data_dir_home canonical-cleanup "$CANONICAL_MACOS_DATA:install/install-state.env")"
+if grep -Fq "rm -rf $(printf '%q' "$canonical_cleanup_home/$CANONICAL_MACOS_DATA") (data dir)" <<<"$(cleanup_plan_as Darwin "$canonical_cleanup_home")"; then
+  check 0 "macOS cleanup targets an Application Support install"
+else
+  check 1 "macOS cleanup targets an Application Support install"
+fi
 
 if grep -Fq "run_quiet \"repository clone\" gh repo clone \"\$REPO_SLUG\"" "$INSTALLER"; then
   check 0 "runtime cloning is delegated to GitHub CLI"
