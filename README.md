@@ -72,13 +72,24 @@ ZOLVEN_CLOUD_ENROLLMENT_STUB_FILE=/path/to/enrollment-response.json  # dev/test 
 | Resource | Local | Cloud |
 | --- | --- | --- |
 | Runtime repository | `~/.local/opt/zolven` | `/opt/zolven` |
-| Runtime data | `~/.local/share/zolven` | `/var/lib/zolven` |
+| Runtime data | `~/Library/Application Support/Zolven` (macOS), `~/.local/share/zolven` (Linux) | `/var/lib/zolven` |
 | CLI launcher | `~/.local/bin/zolven` (or `/usr/local/bin/zolven` for root) | `/usr/local/bin/zolven` |
 | OpenClaw workspace | `~/.openclaw/workspace/zolven` | `/var/lib/zolven/openclaw/workspace/zolven` |
 | Runtime handshake | `Zolven/zolven:.zolven-install-contract` (version `1`) | same |
 | Install state | `${ZOLVEN_DATA_DIR}/install/install-state.env` | same |
 | Cloud bootstrap | not written | `${ZOLVEN_DATA_DIR}/config/cloud-bootstrap.env` |
 | Tunnel bootstrap | not written | `${ZOLVEN_DATA_DIR}/config/tunnel.env` |
+
+The local runtime data path is shared with the Zolven runtime, which resolves
+the same default (`scripts/lib/data-dir.sh` in `Zolven/zolven`). From the
+2026-07-29 rebrand until the two were realigned, this installer put macOS data in
+`~/.local/share/zolven`. Those installs are not moved: on macOS the installer,
+`cleanup.sh` and the runtime all adopt `~/.local/share/zolven` when it holds an
+install (`config/zolven.env`, `data/finance_ops.sqlite` or
+`install/install-state.env`) and Application Support does not. If both hold an
+install, the installer stops and asks for `--data-dir` rather than guessing,
+and `cleanup.sh` removes both locations. The runtime, which cannot stop and ask,
+ranks them instead: the database decides, then the install state.
 
 Product-owned environment variables use the `ZOLVEN_` prefix. OpenClaw remains
 OpenClaw, and its upstream `OPENCLAW_*` configuration names are preserved.

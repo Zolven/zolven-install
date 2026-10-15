@@ -21,9 +21,49 @@ case "$(uname -s)" in
   *)      OS_KIND="other" ;;
 esac
 
+# Same rule as install.sh's default_local_data_dir, which explains it: macOS
+# uses Application Support, except that an install left in the legacy
+# ~/.local/share/zolven is found there rather than orphaned.
+MACOS_CANONICAL_DATA_DIR="$HOME/Library/Application Support/Zolven"
+MACOS_LEGACY_DATA_DIR="$HOME/.local/share/zolven"
+
+data_dir_has_install() {
+  [ -f "$1/config/zolven.env" ] \
+    || [ -f "$1/data/finance_ops.sqlite" ] \
+    || [ -f "$1/install/install-state.env" ]
+}
+
+# How strongly a data dir claims to be the install: its database outranks the
+# installer's state record, which outranks nothing.
+data_dir_rank() {
+  local dir="$1" rank=0
+  if [ -f "$dir/data/finance_ops.sqlite" ]; then
+    rank=$((rank + 2))
+  fi
+  if [ -f "$dir/install/install-state.env" ]; then
+    rank=$((rank + 1))
+  fi
+  printf '%s\n' "$rank"
+}
+
+default_local_data_dir() {
+  local canonical="$MACOS_CANONICAL_DATA_DIR" legacy="$MACOS_LEGACY_DATA_DIR"
+  if [ "$OS_KIND" != "macos" ]; then
+    printf '%s\n' "$HOME/.local/share/zolven"
+    return
+  fi
+  if data_dir_has_install "$legacy" \
+    && { ! data_dir_has_install "$canonical" \
+      || [ "$(data_dir_rank "$legacy")" -gt "$(data_dir_rank "$canonical")" ]; }; then
+    printf '%s\n' "$legacy"
+  else
+    printf '%s\n' "$canonical"
+  fi
+}
+
 LOCAL_DEFAULT_REPO_DIR="$HOME/.local/opt/zolven"
 LOCAL_DEFAULT_WATCH_DIR="$HOME/Documents/Zolven"
-LOCAL_DEFAULT_DATA_DIR="$HOME/.local/share/zolven"
+LOCAL_DEFAULT_DATA_DIR="$(default_local_data_dir)"
 
 CLOUD_DEFAULT_REPO_DIR="/opt/zolven"
 CLOUD_DEFAULT_DATA_DIR="/var/lib/zolven"
@@ -664,7 +704,7 @@ rm_path_vetted() {
     return 0
   fi
   if [ "$DRY_RUN" -eq 1 ]; then
-    plan "rm -rf $target ($label)"
+    plan "rm -rf $(printf '%q' "$target") ($label)"
     return 0
   fi
   if path_needs_sudo "$target"; then
@@ -706,6 +746,9 @@ summarize() {
   tty_kv "Install state"   "$(fmt_path "$INSTALL_STATE_FILE")"   "$(fmt_presence "$INSTALL_STATE_FILE" file)"
   tty_kv "Repo"            "$(fmt_path "$REPO_DIR")"             "$(fmt_presence "$REPO_DIR" git)"
   tty_kv "Data dir"        "$(fmt_path "$DATA_DIR")"             "$(fmt_presence "$DATA_DIR" dir)"
+  if [ -n "$(other_default_data_dir)" ] && [ -e "$(other_default_data_dir)" ]; then
+    tty_kv "Other data dir" "$(fmt_path "$(other_default_data_dir)")" "$(fmt_presence "$(other_default_data_dir)" dir)"
+  fi
   tty_kv "Watch dir"       "$(fmt_path "$WATCH_DIR")"            "$(fmt_presence "$WATCH_DIR" dir)"
   tty_kv "CLI launcher"    "$(fmt_path "$CLI_LAUNCHER_PATH")"    "$(fmt_presence "$CLI_LAUNCHER_PATH" any)"
   tty_kv "Service manager" "$SERVICE_MANAGER"
@@ -974,9 +1017,23 @@ stage_remove_env_local() {
   rm_path "$env_file" "repo .env.local"
 }
 
+# macOS has two default data locations (see default_local_data_dir), and the
+# rule picks one. A cleanup that reports success must not leave an install in
+# the other, so a default-located data dir takes its counterpart with it.
+other_default_data_dir() {
+  [ "$OS_KIND" = "macos" ] && [ "$INSTALL_MODE" = "local" ] || return 0
+  case "$DATA_DIR" in
+    "$MACOS_CANONICAL_DATA_DIR") printf '%s\n' "$MACOS_LEGACY_DATA_DIR" ;;
+    "$MACOS_LEGACY_DATA_DIR") printf '%s\n' "$MACOS_CANONICAL_DATA_DIR" ;;
+  esac
+}
+
 stage_remove_data_dir() {
+  local other
   [ "$KEEP_DATA_DIR" -eq 0 ] || { say "Keeping data dir (--keep-data-dir)"; return 0; }
   rm_path "$DATA_DIR" "data dir"
+  other="$(other_default_data_dir)"
+  [ -z "$other" ] || rm_path "$other" "other default data dir"
 }
 
 stage_remove_watch_dir() {
